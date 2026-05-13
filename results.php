@@ -1,0 +1,125 @@
+<?php
+$pageTitle = 'Results - UMU Varsity Ball';
+$config = require __DIR__ . '/config/config.php';
+require_once __DIR__ . '/includes/header.php';
+require_once __DIR__ . '/includes/db.php';
+require_once __DIR__ . '/includes/helpers.php';
+
+$resultsPublic = (bool) ($config['app']['results_public'] ?? false);
+$isAdmin = is_logged_in() && is_admin($config);
+$showResults = $resultsPublic || $isAdmin;
+
+$categoryScores = [];
+$categoryLeaders = [];
+$overallScores = [];
+$overallWinners = ['male' => null, 'female' => null];
+$chartLabels = [];
+$chartScores = [];
+
+if ($showResults) {
+    $categoryScores = $pdo->query(
+        'SELECT c.id AS category_id, c.name AS category_name, c.gender,
+                con.id AS contestant_id, con.name AS contestant_name, con.photo,
+                AVG(v.score) AS avg_score
+         FROM categories c
+         JOIN votes v ON v.category_id = c.id
+         JOIN contestants con ON con.id = v.contestant_id
+         GROUP BY c.id, con.id
+         ORDER BY c.id, avg_score DESC'
+    )->fetchAll();
+
+    foreach ($categoryScores as $row) {
+        $categoryId = $row['category_id'];
+        if (!isset($categoryLeaders[$categoryId]) || $row['avg_score'] > $categoryLeaders[$categoryId]['avg_score']) {
+            $categoryLeaders[$categoryId] = $row;
+        }
+    }
+
+    $overallScores = $pdo->query(
+        'SELECT con.id AS contestant_id, con.name AS contestant_name, con.gender, con.photo,
+                AVG(v.score) AS avg_score
+         FROM contestants con
+         JOIN votes v ON v.contestant_id = con.id
+         GROUP BY con.id
+         ORDER BY avg_score DESC'
+    )->fetchAll();
+
+    foreach ($overallScores as $row) {
+        if ($row['gender'] === 'male' && $overallWinners['male'] === null) {
+            $overallWinners['male'] = $row;
+        }
+        if ($row['gender'] === 'female' && $overallWinners['female'] === null) {
+            $overallWinners['female'] = $row;
+        }
+    }
+
+    foreach (array_slice($overallScores, 0, 5) as $row) {
+        $chartLabels[] = $row['contestant_name'];
+        $chartScores[] = round((float) $row['avg_score'], 2);
+    }
+}
+?>
+<section class="py-5">
+    <div class="container">
+        <div class="section-title">
+            <span>Results</span>
+            <h2 class="mb-0">Live leaderboard</h2>
+        </div>
+
+        <?php if (!$showResults): ?>
+            <div class="alert alert-warning">Results are available to admins only during the election period.</div>
+        <?php elseif (!$overallScores): ?>
+            <div class="alert alert-warning">No votes yet. Results will appear once voting starts.</div>
+        <?php else: ?>
+            <div class="row g-4 mb-5">
+                <?php foreach (['male' => 'Mr UMU Rubaga', 'female' => 'Mrs UMU Rubaga'] as $gender => $title): ?>
+                    <?php $winner = $overallWinners[$gender]; ?>
+                    <div class="col-md-6">
+                        <div class="leader-card">
+                            <h4 class="mb-3"><?php echo h($title); ?></h4>
+                            <?php if ($winner): ?>
+                                <div class="d-flex gap-3 align-items-center">
+                                    <img class="contestant-img" style="width: 120px; height: 120px;" src="<?php echo h(asset_url($winner['photo'], $config)); ?>" alt="<?php echo h($winner['contestant_name']); ?>">
+                                    <div>
+                                        <h5 class="mb-1"><?php echo h($winner['contestant_name']); ?></h5>
+                                        <div class="text-muted">Average score: <?php echo number_format((float) $winner['avg_score'], 2); ?></div>
+                                    </div>
+                                </div>
+                            <?php else: ?>
+                                <p class="text-muted">No votes yet.</p>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+
+            <div class="card-dark p-4 mb-5">
+                <h4 class="mb-3">Top contestants</h4>
+                <canvas
+                    id="overallChart"
+                    height="140"
+                    data-labels='<?php echo json_encode($chartLabels); ?>'
+                    data-scores='<?php echo json_encode($chartScores); ?>'
+                ></canvas>
+            </div>
+
+            <div class="row g-4">
+                <?php foreach ($categoryLeaders as $leader): ?>
+                    <div class="col-md-6 col-lg-4">
+                        <div class="card-dark p-3 h-100">
+                            <h5 class="mb-2"><?php echo h($leader['category_name']); ?></h5>
+                            <div class="d-flex gap-3 align-items-center">
+                                <img class="contestant-img" style="width: 90px; height: 90px;" src="<?php echo h(asset_url($leader['photo'], $config)); ?>" alt="<?php echo h($leader['contestant_name']); ?>">
+                                <div>
+                                    <div class="fw-bold"><?php echo h($leader['contestant_name']); ?></div>
+                                    <small class="text-muted">Avg: <?php echo number_format((float) $leader['avg_score'], 2); ?></small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+    </div>
+</section>
+<?php require_once __DIR__ . '/includes/footer.php'; ?>

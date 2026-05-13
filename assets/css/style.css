@@ -1,0 +1,198 @@
+:root {
+    --umu-red: #c8102e;
+    --umu-gold: #c9a227;
+    --umu-black: #0b0b0b;
+    --umu-ash: #1b1b1b;
+    --umu-cream: #f7f4ea;
+    --umu-gray: #f3f3f3;
+    --glass: rgba(0, 0, 0, 0.85);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: "Manrope", sans-serif;
+    background: #ffffff;
+    color: #121212;
+    min-height: 100vh;
+}
+
+h1, h2, h3, h4 {
+    font-family: "DM Serif Display", serif;
+    letter-spacing: 0.5px;
+}
+
+.brand-dot {
+    display: inline-block;
+    width: 10px;
+    height: 220px;
+    object-fit: contain;
+    object-position: center;
+    border-radius: 16px;
+    background: #f6f6f6;
+    padding: 8px;
+    margin-right: 8px;
+}
+
+.glass-nav {
+    background: #000000;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.navbar-dark .navbar-brand,
+.navbar-dark .nav-link {
+    color: #f5f5f5;
+}
+
+.hero {
+    padding: 90px 0 60px;
+    position: relative;
+    overflow: hidden;
+    background: radial-gradient(circle at 10% 10%, rgba(200, 16, 46, 0.12), transparent 40%),
+        radial-gradient(circle at 85% 30%, rgba(201, 162, 39, 0.14), transparent 45%);
+}
+
+.hero::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 70% 20%, rgba(201, 162, 39, 0.2), transparent 45%);
+    pointer-events: none;
+}
+
+.hero-card {
+    background: #ffffff;
+    border-radius: 24px;
+    box-shadow: 0 24px 40px rgba(0, 0, 0, 0.12);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.btn-primary {
+    background: linear-gradient(120deg, var(--umu-red), #ff5a6b);
+    border: none;
+    box-shadow: 0 12px 24px rgba(200, 16, 46, 0.35);
+}
+
+.btn-outline-light {
+    border-color: rgba(0, 0, 0, 0.4);
+    color: #111111;
+}
+
+.badge-gold {
+    background: rgba(201, 162, 39, 0.16);
+    color: var(--umu-gold);
+    border: 1px solid rgba(201, 162, 39, 0.35);
+}
+
+.card-dark {
+    background: #ffffff;
+    border-radius: 18px;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow: 0 18px 30px rgba(0, 0, 0, 0.1);
+}
+
+.contestant-img {
+    width: 100%;
+    height: 220px;
+    object-fit: contain;
+    background: #f6f6f6;
+    padding: 8px;
+    border-radius: 16px;
+}
+
+.section-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.section-title span {
+    color: var(--umu-gold);
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+}
+
+.vote-group {
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    border-radius: 20px;
+    padding: 24px;
+    background: #ffffff;
+}
+
+.range-value {
+    font-weight: 700;
+    color: var(--umu-gold);
+}
+
+.progress-pill {
+    background: rgba(0, 0, 0, 0.08);
+    border-radius: 999px;
+    height: 8px;
+    overflow: hidden;
+}
+
+.progress-pill span {
+    display: block;
+    height: 100%;
+    background: linear-gradient(120deg, var(--umu-gold), var(--umu-red));
+}
+
+.leader-card {
+    background: linear-gradient(140deg, rgba(201, 162, 39, 0.18), rgba(200, 16, 46, 0.12));
+    border-radius: 20px;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    padding: 20px;
+}
+
+.footer {
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.admin-layout {
+    display: flex;
+    min-height: 100vh;
+}
+
+.admin-sidebar {
+    width: 240px;
+    background: #0b0b0b;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 24px;
+}
+
+.admin-sidebar a {
+    color: #f5f5f5;
+    text-decoration: none;
+    display: block;
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: transparent;
+}
+
+.admin-sidebar a.active,
+.admin-sidebar a:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.admin-content {
+    flex: 1;
+    padding: 32px;
+}
+
+@media (max-width: 991px) {
+    .admin-layout {
+        flex-direction: column;
+    }
+
+    .admin-sidebar {
+        width: 100%;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+}
