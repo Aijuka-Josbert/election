@@ -1,7 +1,7 @@
 <?php
 $host = $_SERVER['HTTP_HOST'] ?? '';
 $isLive = strpos($host, 'umuelections.fwh.is') !== false;
-return [
+$config = [
     'db' => [
         'host' => 'localhost',
         'name' => 'umu_vote',
@@ -35,6 +35,7 @@ return [
         'base_url' => '',
         'event_name' => 'UMU Rubaga Varsity Ball',
         'event_date' => '',
+        'timezone' => 'Africa/Kampala',
         'allowed_domain' => 'stud.umu.ac.ug',
         'voting_open' => false,
         'voting_start' => '',
@@ -59,4 +60,14 @@ return [
         'allowed_types' => ['image/jpeg', 'image/png', 'image/webp'],
     ],
 ];
+
+$configLocalPath = __DIR__ . '/config.local.php';
+if (is_file($configLocalPath)) {
+    $localConfig = require $configLocalPath;
+    if (is_array($localConfig)) {
+        $config = array_replace_recursive($config, $localConfig);
+    }
+}
+
+return $config;
 

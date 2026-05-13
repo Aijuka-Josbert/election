@@ -4,11 +4,25 @@ require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/helpers.php';
 require_once __DIR__ . '/includes/session.php';
 
-$resultsPublic = (bool) ($config['app']['results_public'] ?? false);
+if (isset($pdo)) {
+    $config = apply_app_settings($config, $pdo);
+}
+
 $isAdmin = is_logged_in() && is_admin($config);
-if (!$resultsPublic && !$isAdmin) {
+$tzName = $config['app']['timezone'] ?? 'UTC';
+$tz = new DateTimeZone($tzName);
+$now = new DateTime('now', $tz);
+$votingEnabled = (bool) ($config['app']['voting_open'] ?? false);
+$startValue = $config['app']['voting_start'] ?? '';
+$endValue = $config['app']['voting_end'] ?? '';
+$startTime = $startValue !== '' ? new DateTime($startValue, $tz) : null;
+$endTime = $endValue !== '' ? new DateTime($endValue, $tz) : null;
+$hasStarted = $startTime ? $now >= $startTime : true;
+$canDownload = $isAdmin;
+
+if (!$canDownload) {
     http_response_code(403);
-    echo 'Certificates are available to admins only during the election period.';
+    echo 'Certificates are available to admins only after voting has closed.';
     exit;
 }
 

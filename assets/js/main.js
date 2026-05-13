@@ -217,4 +217,104 @@ document.addEventListener("DOMContentLoaded", () => {
             });
         }
     }
+
+    const sliders = document.querySelectorAll(".results-slider");
+    sliders.forEach((slider) => {
+        const track = slider.querySelector(".results-track");
+        const slides = Array.from(slider.querySelectorAll(".result-slide"));
+        const prevBtn = slider.querySelector(".slider-btn.prev");
+        const nextBtn = slider.querySelector(".slider-btn.next");
+        const dots = slider.querySelector(".slider-dots");
+        if (!track || slides.length === 0) {
+            return;
+        }
+
+        let currentIndex = 0;
+        const autoplay = slider.dataset.autoplay === "true";
+        let timer = null;
+
+        const renderDots = () => {
+            if (!dots) {
+                return;
+            }
+            dots.innerHTML = "";
+            slides.forEach((_, index) => {
+                const dot = document.createElement("button");
+                dot.type = "button";
+                dot.className = "slider-dot";
+                if (index === currentIndex) {
+                    dot.classList.add("active");
+                }
+                dot.addEventListener("click", () => {
+                    goTo(index);
+                });
+                dots.appendChild(dot);
+            });
+        };
+
+        const update = () => {
+            track.style.transform = `translateX(${-currentIndex * 100}%)`;
+            renderDots();
+        };
+
+        const goTo = (index) => {
+            currentIndex = (index + slides.length) % slides.length;
+            update();
+        };
+
+        prevBtn?.addEventListener("click", () => goTo(currentIndex - 1));
+        nextBtn?.addEventListener("click", () => goTo(currentIndex + 1));
+
+        let touchStartX = 0;
+        let touchEndX = 0;
+
+        const startAutoplay = () => {
+            timer = setInterval(() => {
+                goTo(currentIndex + 1);
+            }, 5000);
+        };
+
+        const stopAutoplay = () => {
+            if (timer) {
+                clearInterval(timer);
+                timer = null;
+            }
+        };
+
+        if (autoplay) {
+            startAutoplay();
+            slider.addEventListener("mouseenter", stopAutoplay);
+            slider.addEventListener("mouseleave", startAutoplay);
+        }
+
+        slider.addEventListener("touchstart", (event) => {
+            touchStartX = event.changedTouches[0]?.screenX ?? 0;
+            stopAutoplay();
+        });
+
+        slider.addEventListener("touchend", (event) => {
+            touchEndX = event.changedTouches[0]?.screenX ?? 0;
+            const delta = touchStartX - touchEndX;
+            if (Math.abs(delta) > 40) {
+                if (delta > 0) {
+                    goTo(currentIndex + 1);
+                } else {
+                    goTo(currentIndex - 1);
+                }
+            }
+
+            if (autoplay) {
+                startAutoplay();
+            }
+        });
+
+        update();
+    });
+
+    const printBtn = document.getElementById("printResultsBtn");
+    if (printBtn) {
+        printBtn.addEventListener("click", () => {
+            window.print();
+        });
+    }
 });

@@ -1,7 +1,13 @@
 <?php
 require_once __DIR__ . '/../../includes/session.php';
 require_once __DIR__ . '/../../includes/helpers.php';
-$config = require __DIR__ . '/../../config/config.php';
+if (!isset($config)) {
+    $config = require __DIR__ . '/../../config/config.php';
+}
+require_once __DIR__ . '/../../includes/db.php';
+if (isset($pdo)) {
+    $config = apply_app_settings($config, $pdo);
+}
 $pageTitle = $pageTitle ?? 'Admin - UMU Varsity Ball';
 $activePage = $activePage ?? '';
 $baseUrl = base_url($config);

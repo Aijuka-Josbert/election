@@ -5,9 +5,18 @@ require_once __DIR__ . '/includes/header.php';
 require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/helpers.php';
 
-$resultsPublic = (bool) ($config['app']['results_public'] ?? false);
 $isAdmin = is_logged_in() && is_admin($config);
-$showResults = $resultsPublic || $isAdmin;
+$tzName = $config['app']['timezone'] ?? 'UTC';
+$tz = new DateTimeZone($tzName);
+$now = new DateTime('now', $tz);
+$votingEnabled = (bool) ($config['app']['voting_open'] ?? false);
+$startValue = $config['app']['voting_start'] ?? '';
+$endValue = $config['app']['voting_end'] ?? '';
+$startTime = $startValue !== '' ? new DateTime($startValue, $tz) : null;
+$endTime = $endValue !== '' ? new DateTime($endValue, $tz) : null;
+$hasStarted = $startTime ? $now >= $startTime : true;
+$hasEnded = $endTime ? $now > $endTime : false;
+$showResults = $isAdmin;
 
 $categoryScores = [];
 $categoryLeaders = [];
@@ -82,10 +91,58 @@ if ($showResults) {
         </div>
 
         <?php if (!$showResults): ?>
-            <div class="alert alert-warning">Results are available to admins only during the election period.</div>
+            <div class="alert alert-warning">Results are available to admins only.</div>
         <?php elseif (!$overallScores): ?>
             <div class="alert alert-warning">No votes yet. Results will appear once voting starts.</div>
         <?php else: ?>
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+                <div class="text-muted">Admin view: full results with live totals.</div>
+                <button class="btn btn-outline-light" type="button" id="printResultsBtn">Print results</button>
+            </div>
+
+            <div class="results-slider" data-autoplay="true">
+                <div class="results-track">
+                    <?php foreach ($categoryLeaders as $leader): ?>
+                        <div class="result-slide">
+                            <div class="card-dark p-4 h-100">
+                                <div class="text-uppercase text-muted small">Category winner</div>
+                                <h4 class="mt-2 mb-3"><?php echo h($leader['category_name']); ?></h4>
+                                <div class="d-flex gap-3 align-items-center">
+                                    <img class="contestant-img" style="width: 120px; height: 120px;" src="<?php echo h(asset_url($leader['photo'], $config)); ?>" alt="<?php echo h($leader['contestant_name']); ?>">
+                                    <div>
+                                        <h5 class="mb-1"><?php echo h($leader['contestant_name']); ?></h5>
+                                        <div class="text-muted">Avg score: <?php echo number_format((float) $leader['avg_score'], 2); ?></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                    <?php foreach (['male' => 'Mr UMU Rubaga', 'female' => 'Mrs UMU Rubaga'] as $gender => $title): ?>
+                        <?php $winner = $overallWinners[$gender]; ?>
+                        <div class="result-slide">
+                            <div class="leader-card winner-spotlight h-100">
+                                <div class="text-uppercase text-muted small">Overall winner</div>
+                                <h4 class="mt-2 mb-3"><?php echo h($title); ?></h4>
+                                <?php if ($winner): ?>
+                                    <div class="d-flex gap-3 align-items-center">
+                                        <img class="contestant-img" style="width: 140px; height: 140px;" src="<?php echo h(asset_url($winner['photo'], $config)); ?>" alt="<?php echo h($winner['contestant_name']); ?>">
+                                        <div>
+                                            <h5 class="mb-1"><i class="bi bi-trophy-fill text-warning"></i> <?php echo h($winner['contestant_name']); ?></h5>
+                                            <div class="text-muted">Average score: <?php echo number_format((float) $winner['avg_score'], 2); ?></div>
+                                        </div>
+                                    </div>
+                                <?php else: ?>
+                                    <p class="text-muted">No votes yet.</p>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+                <button class="slider-btn prev" type="button" aria-label="Previous slide">&#10094;</button>
+                <button class="slider-btn next" type="button" aria-label="Next slide">&#10095;</button>
+                <div class="slider-dots" aria-hidden="true"></div>
+            </div>
+
             <div class="row g-4">
                 <?php foreach ($categoryLeaders as $leader): ?>
                     <div class="col-md-6 col-lg-4">
@@ -98,28 +155,6 @@ if ($showResults) {
                                     <small class="text-muted">Avg: <?php echo number_format((float) $leader['avg_score'], 2); ?></small>
                                 </div>
                             </div>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
-            </div>
-
-            <div class="row g-4 my-5">
-                <?php foreach (['male' => 'Mr UMU Rubaga', 'female' => 'Mrs UMU Rubaga'] as $gender => $title): ?>
-                    <?php $winner = $overallWinners[$gender]; ?>
-                    <div class="col-md-6">
-                        <div class="leader-card winner-spotlight">
-                            <h4 class="mb-3"><?php echo h($title); ?></h4>
-                            <?php if ($winner): ?>
-                                <div class="d-flex gap-3 align-items-center">
-                                    <img class="contestant-img" style="width: 120px; height: 120px;" src="<?php echo h(asset_url($winner['photo'], $config)); ?>" alt="<?php echo h($winner['contestant_name']); ?>">
-                                    <div>
-                                        <h5 class="mb-1"><i class="bi bi-trophy-fill text-warning"></i> <?php echo h($winner['contestant_name']); ?></h5>
-                                        <div class="text-muted">Average score: <?php echo number_format((float) $winner['avg_score'], 2); ?></div>
-                                    </div>
-                                </div>
-                            <?php else: ?>
-                                <p class="text-muted">No votes yet.</p>
-                            <?php endif; ?>
                         </div>
                     </div>
                 <?php endforeach; ?>

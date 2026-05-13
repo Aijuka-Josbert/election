@@ -266,6 +266,79 @@ h1, h2, h3, h4 {
     pointer-events: none;
 }
 
+.results-slider {
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 32px;
+    border-radius: 20px;
+}
+
+.results-track {
+    display: flex;
+    transition: transform 0.6s ease;
+    will-change: transform;
+}
+
+.result-slide {
+    min-width: 100%;
+    padding: 10px 4px 18px;
+}
+
+.slider-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(17, 17, 17, 0.7);
+    color: #ffffff;
+    border: none;
+    border-radius: 999px;
+    width: 40px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    z-index: 2;
+}
+
+.slider-btn.prev {
+    left: 12px;
+}
+
+.slider-btn.next {
+    right: 12px;
+}
+
+.slider-dots {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.slider-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(17, 17, 17, 0.2);
+}
+
+.slider-dot.active {
+    background: var(--umu-gold);
+}
+
+@media print {
+    .glass-nav,
+    .admin-sidebar,
+    .slider-btn,
+    #printResultsBtn {
+        display: none !important;
+    }
+
+    body {
+        background: #ffffff;
+    }
+}
+
 @keyframes winnerPulse {
     0%, 100% { transform: translateY(0); }
     50% { transform: translateY(-4px); }

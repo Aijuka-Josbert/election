@@ -95,3 +95,72 @@ function runtime_config(array $config): array
 
     return $config;
 }
+
+function ensure_settings_table(PDO $pdo): void
+{
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS app_settings (\n"
+        . "setting_key VARCHAR(64) PRIMARY KEY,\n"
+        . "setting_value TEXT NOT NULL\n"
+        . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+    );
+}
+
+function fetch_app_settings(PDO $pdo): array
+{
+    try {
+        ensure_settings_table($pdo);
+        $rows = $pdo->query('SELECT setting_key, setting_value FROM app_settings')->fetchAll();
+    } catch (PDOException $e) {
+        return [];
+    }
+
+    $settings = [];
+    foreach ($rows as $row) {
+        $settings[$row['setting_key']] = $row['setting_value'];
+    }
+
+    return $settings;
+}
+
+function apply_app_settings(array $config, PDO $pdo): array
+{
+    $settings = fetch_app_settings($pdo);
+    if (!$settings) {
+        return $config;
+    }
+
+    $app = $config['app'] ?? [];
+    foreach ($settings as $key => $value) {
+        switch ($key) {
+            case 'voting_open':
+            case 'results_public':
+                $app[$key] = (bool) (int) $value;
+                break;
+            case 'category_limit':
+                $app[$key] = (int) $value;
+                break;
+            default:
+                $app[$key] = $value;
+                break;
+        }
+    }
+
+    $config['app'] = $app;
+    return $config;
+}
+
+function save_app_settings(PDO $pdo, array $settings): bool
+{
+    try {
+        ensure_settings_table($pdo);
+        $stmt = $pdo->prepare('REPLACE INTO app_settings (setting_key, setting_value) VALUES (?, ?)');
+        foreach ($settings as $key => $value) {
+            $stmt->execute([$key, (string) $value]);
+        }
+    } catch (PDOException $e) {
+        return false;
+    }
+
+    return true;
+}

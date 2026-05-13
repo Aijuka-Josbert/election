@@ -3,6 +3,9 @@ require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/helpers.php';
 $config = require __DIR__ . '/config/config.php';
+if (isset($pdo)) {
+    $config = apply_app_settings($config, $pdo);
+}
 
 $pageTitle = 'Vote - UMU Varsity Ball';
 require_once __DIR__ . '/includes/header.php';
@@ -23,17 +26,32 @@ if ($hasVoted === 1 && $voteCount === 0) {
 $votingOpen = (bool) ($config['app']['voting_open'] ?? true);
 $start = $config['app']['voting_start'] ?? '';
 $end = $config['app']['voting_end'] ?? '';
-if ($votingOpen && ($start || $end)) {
-    $now = new DateTime('now');
-    $startTime = $start ? new DateTime($start) : null;
-    $endTime = $end ? new DateTime($end) : null;
+$tzName = $config['app']['timezone'] ?? 'UTC';
+$tz = new DateTimeZone($tzName);
+$now = new DateTime('now', $tz);
+$startTime = $start ? new DateTime($start, $tz) : null;
+$endTime = $end ? new DateTime($end, $tz) : null;
+$votingStatusMessage = '';
 
+if (!$votingOpen) {
+    $votingStatusMessage = 'Voting is disabled by the admin.';
+}
+
+if ($votingOpen && ($startTime || $endTime)) {
     if ($startTime && $endTime) {
         $votingOpen = $now >= $startTime && $now <= $endTime;
     } elseif ($startTime) {
         $votingOpen = $now >= $startTime;
     } elseif ($endTime) {
         $votingOpen = $now <= $endTime;
+    }
+
+    if (!$votingOpen) {
+        if ($startTime && $now < $startTime) {
+            $votingStatusMessage = 'Voting opens on ' . $startTime->format('M d, Y H:i') . ' (' . $tzName . ').';
+        } elseif ($endTime && $now > $endTime) {
+            $votingStatusMessage = 'Voting closed on ' . $endTime->format('M d, Y H:i') . ' (' . $tzName . ').';
+        }
     }
 }
 
@@ -139,7 +157,9 @@ foreach ($categories as $category) {
         </div>
 
         <?php if (!$votingOpen): ?>
-            <div class="alert alert-warning">Voting is currently closed. Please check back later.</div>
+            <div class="alert alert-warning">
+                <?php echo h($votingStatusMessage !== '' ? $votingStatusMessage : 'Voting is currently closed. Please check back later.'); ?>
+            </div>
         <?php elseif ($hasVoted): ?>
             <div class="alert alert-success">You have already voted.</div>
         <?php elseif ($success): ?>

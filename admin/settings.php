@@ -1,7 +1,9 @@
 <?php
 require_once __DIR__ . '/../includes/admin_auth.php';
 require_once __DIR__ . '/../includes/helpers.php';
+require_once __DIR__ . '/../includes/db.php';
 $configPath = __DIR__ . '/../config/config.php';
+$localConfigPath = __DIR__ . '/../config/config.local.php';
 $config = require $configPath;
 
 $pageTitle = 'Settings - UMU Varsity Ball';
@@ -9,11 +11,16 @@ $activePage = 'settings';
 
 $success = '';
 $errors = [];
-$isWritable = is_writable($configPath);
+$settingsWritable = isset($pdo);
+$settingsMode = 'database';
+
+if (isset($pdo)) {
+    $config = apply_app_settings($config, $pdo);
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!$isWritable) {
-        $errors[] = 'Settings are locked in production. Edit config.php manually.';
+    if (!$settingsWritable) {
+        $errors[] = 'Settings are locked. Database connection is unavailable.';
     } else {
     $eventDate = trim($_POST['event_date'] ?? '');
     $eventTime = trim($_POST['event_time'] ?? '');
@@ -38,10 +45,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ? $eventDate . ' ' . $resolvedEventTime . ':00'
         : '';
 
-    $content = "<?php\n\nreturn " . var_export($config, true) . ";\n";
+    $saveOk = save_app_settings($pdo, [
+        'event_date' => $config['app']['event_date'] ?? '',
+        'voting_open' => !empty($config['app']['voting_open']) ? '1' : '0',
+        'voting_start' => $config['app']['voting_start'] ?? '',
+        'voting_end' => $config['app']['voting_end'] ?? '',
+        'results_public' => !empty($config['app']['results_public']) ? '1' : '0',
+    ]);
 
-    if (file_put_contents($configPath, $content) === false) {
-        $errors[] = 'Unable to save settings.';
+    if (!$saveOk) {
+        $errors[] = 'Unable to save settings to the database.';
     } else {
         $success = 'Settings updated.';
     }
@@ -70,6 +83,46 @@ if (!empty($config['app']['event_date'])) {
     $eventDateValue = substr($config['app']['event_date'], 0, 10);
     $eventTimeValue = substr($config['app']['event_date'], 11, 5);
 }
+
+$statusMessage = 'Voting is disabled by the admin.';
+$statusClass = 'alert-warning';
+$statusOpen = (bool) ($config['app']['voting_open'] ?? false);
+$startValue = $config['app']['voting_start'] ?? '';
+$endValue = $config['app']['voting_end'] ?? '';
+$tzName = $config['app']['timezone'] ?? 'UTC';
+$tz = new DateTimeZone($tzName);
+$now = new DateTime('now', $tz);
+$startTime = $startValue !== '' ? new DateTime($startValue, $tz) : null;
+$endTime = $endValue !== '' ? new DateTime($endValue, $tz) : null;
+
+if ($statusOpen) {
+    $statusMessage = 'Voting is enabled and has no time window.';
+    $statusClass = 'alert-success';
+
+    if ($startTime || $endTime) {
+        $isOpenNow = true;
+        if ($startTime && $endTime) {
+            $isOpenNow = $now >= $startTime && $now <= $endTime;
+        } elseif ($startTime) {
+            $isOpenNow = $now >= $startTime;
+        } elseif ($endTime) {
+            $isOpenNow = $now <= $endTime;
+        }
+
+        if ($isOpenNow) {
+            $statusMessage = 'Voting is open now.';
+        } elseif ($startTime && $now < $startTime) {
+            $statusMessage = 'Voting opens on ' . $startTime->format('M d, Y H:i') . ' (' . $tzName . ').';
+            $statusClass = 'alert-warning';
+        } elseif ($endTime && $now > $endTime) {
+            $statusMessage = 'Voting closed on ' . $endTime->format('M d, Y H:i') . ' (' . $tzName . ').';
+            $statusClass = 'alert-warning';
+        } else {
+            $statusMessage = 'Voting is currently closed.';
+            $statusClass = 'alert-warning';
+        }
+    }
+}
 ?>
 <h2 class="mb-4">Voting Settings</h2>
 <?php if ($success): ?>
@@ -82,9 +135,10 @@ if (!empty($config['app']['event_date'])) {
         <?php endforeach; ?>
     </div>
 <?php endif; ?>
-<?php if (!$isWritable): ?>
-    <div class="alert alert-warning">Settings are locked in production. Edit config.php manually on your host.</div>
+<?php if (!$settingsWritable): ?>
+    <div class="alert alert-warning">Settings are locked. Database connection is unavailable.</div>
 <?php endif; ?>
+<div class="alert <?php echo h($statusClass); ?>"><?php echo h($statusMessage); ?></div>
 <div class="card-dark p-4">
     <form method="post">
         <div class="row g-3 mb-3">
@@ -124,7 +178,7 @@ if (!empty($config['app']['event_date'])) {
             <input class="form-check-input" type="checkbox" id="results_public" name="results_public" <?php echo !empty($config['app']['results_public']) ? 'checked' : ''; ?>>
             <label class="form-check-label" for="results_public">Make results visible to everyone</label>
         </div>
-        <button class="btn btn-primary mt-4" type="submit" <?php echo !$isWritable ? 'disabled' : ''; ?>>Save Settings</button>
+        <button class="btn btn-primary mt-4" type="submit" <?php echo !$settingsWritable ? 'disabled' : ''; ?>>Save Settings</button>
     </form>
 </div>
 <?php require_once __DIR__ . '/partials/footer.php'; ?>
