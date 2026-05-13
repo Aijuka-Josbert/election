@@ -175,6 +175,70 @@ h1, h2, h3, h4 {
     background: linear-gradient(120deg, var(--umu-gold), var(--umu-red));
 }
 
+.category-chip.active {
+    background: linear-gradient(120deg, rgba(200, 16, 46, 0.12), rgba(201, 162, 39, 0.18));
+    border-color: rgba(201, 162, 39, 0.6);
+    color: #111111;
+}
+
+#voteStepper {
+    background: linear-gradient(120deg, rgba(200, 16, 46, 0.06), rgba(201, 162, 39, 0.1));
+    border: 1px solid rgba(201, 162, 39, 0.25);
+}
+
+.vote-sticky-bar {
+    position: sticky;
+    bottom: 16px;
+    z-index: 5;
+    box-shadow: 0 18px 30px rgba(0, 0, 0, 0.12);
+}
+
+.vote-form {
+    padding-bottom: 120px;
+}
+
+.step-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 100px;
+    transform: translateX(-50%) translateY(12px);
+    background: #111111;
+    color: #ffffff;
+    padding: 10px 18px;
+    border-radius: 999px;
+    box-shadow: 0 16px 24px rgba(0, 0, 0, 0.2);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+    z-index: 10;
+}
+
+.step-toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+.vote-step {
+    transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+}
+
+.vote-step.step-change {
+    animation: stepPulse 0.45s ease-out;
+}
+
+@keyframes stepPulse {
+    0% {
+        opacity: 0.4;
+        transform: translateY(8px);
+        box-shadow: 0 0 0 rgba(201, 162, 39, 0.0);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+        box-shadow: 0 14px 24px rgba(201, 162, 39, 0.18);
+    }
+}
+
 .leader-card {
     background: linear-gradient(140deg, rgba(201, 162, 39, 0.18), rgba(200, 16, 46, 0.12));
     border-radius: 20px;

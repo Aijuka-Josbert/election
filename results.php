@@ -86,7 +86,24 @@ if ($showResults) {
         <?php elseif (!$overallScores): ?>
             <div class="alert alert-warning">No votes yet. Results will appear once voting starts.</div>
         <?php else: ?>
-            <div class="row g-4 mb-5">
+            <div class="row g-4">
+                <?php foreach ($categoryLeaders as $leader): ?>
+                    <div class="col-md-6 col-lg-4">
+                        <div class="card-dark p-3 h-100">
+                            <h5 class="mb-2"><?php echo h($leader['category_name']); ?></h5>
+                            <div class="d-flex gap-3 align-items-center">
+                                <img class="contestant-img" style="width: 90px; height: 90px;" src="<?php echo h(asset_url($leader['photo'], $config)); ?>" alt="<?php echo h($leader['contestant_name']); ?>">
+                                <div>
+                                    <div class="fw-bold"><?php echo h($leader['contestant_name']); ?></div>
+                                    <small class="text-muted">Avg: <?php echo number_format((float) $leader['avg_score'], 2); ?></small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+
+            <div class="row g-4 my-5">
                 <?php foreach (['male' => 'Mr UMU Rubaga', 'female' => 'Mrs UMU Rubaga'] as $gender => $title): ?>
                     <?php $winner = $overallWinners[$gender]; ?>
                     <div class="col-md-6">
@@ -128,21 +145,16 @@ if ($showResults) {
                 ></canvas>
             </div>
 
-            <div class="row g-4">
-                <?php foreach ($categoryLeaders as $leader): ?>
-                    <div class="col-md-6 col-lg-4">
-                        <div class="card-dark p-3 h-100">
-                            <h5 class="mb-2"><?php echo h($leader['category_name']); ?></h5>
-                            <div class="d-flex gap-3 align-items-center">
-                                <img class="contestant-img" style="width: 90px; height: 90px;" src="<?php echo h(asset_url($leader['photo'], $config)); ?>" alt="<?php echo h($leader['contestant_name']); ?>">
-                                <div>
-                                    <div class="fw-bold"><?php echo h($leader['contestant_name']); ?></div>
-                                    <small class="text-muted">Avg: <?php echo number_format((float) $leader['avg_score'], 2); ?></small>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
+            <div class="card-dark p-4">
+                <h4 class="mb-2">Final statement</h4>
+                <p class="text-muted mb-3">
+                    <?php
+                    $femaleWinner = $overallWinners['female']['contestant_name'] ?? 'TBD';
+                    $maleWinner = $overallWinners['male']['contestant_name'] ?? 'TBD';
+                    ?>
+                    Congratulations to Mr UMU Rubaga: <?php echo h($maleWinner); ?>, and Mrs UMU Rubaga: <?php echo h($femaleWinner); ?>.
+                </p>
+                <a class="btn btn-outline-light" href="certificate.php">Download certificate</a>
             </div>
         <?php endif; ?>
     </div>

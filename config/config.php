@@ -34,9 +34,9 @@ return [
     'app' => [
         'base_url' => '',
         'event_name' => 'UMU Rubaga Varsity Ball',
-        // 'event_date' => '2026-05-15 17:00:00',
+        'event_date' => '',
         'allowed_domain' => 'stud.umu.ac.ug',
-        'voting_open' => true,
+        'voting_open' => false,
         'voting_start' => '',
         'voting_end' => '',
         'results_public' => false,

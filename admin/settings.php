@@ -24,15 +24,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $endDate = trim($_POST['voting_end_date'] ?? '');
     $endTime = trim($_POST['voting_end_time'] ?? '');
 
-    $config['app']['voting_start'] = ($startDate && $startTime)
-        ? $startDate . ' ' . $startTime . ':00'
+    $resolvedStartTime = $startTime !== '' ? $startTime : '00:00';
+    $resolvedEndTime = $endTime !== '' ? $endTime : '00:00';
+    $resolvedEventTime = $eventTime !== '' ? $eventTime : '00:00';
+
+    $config['app']['voting_start'] = $startDate
+        ? $startDate . ' ' . $resolvedStartTime . ':00'
         : '';
-    $config['app']['voting_end'] = ($endDate && $endTime)
-        ? $endDate . ' ' . $endTime . ':00'
+    $config['app']['voting_end'] = $endDate
+        ? $endDate . ' ' . $resolvedEndTime . ':00'
         : '';
-    $config['app']['event_date'] = ($eventDate && $eventTime)
-        ? $eventDate . ' ' . $eventTime . ':00'
-        : ($config['app']['event_date'] ?? '');
+    $config['app']['event_date'] = $eventDate
+        ? $eventDate . ' ' . $resolvedEventTime . ':00'
+        : '';
 
     $content = "<?php\n\nreturn " . var_export($config, true) . ";\n";
 

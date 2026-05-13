@@ -26,6 +26,118 @@ document.addEventListener("DOMContentLoaded", () => {
         input.addEventListener("change", updateVoteProgress);
     });
 
+    const voteSteps = document.querySelectorAll(".vote-step");
+    const prevCategoryBtn = document.getElementById("prevCategoryBtn");
+    const nextCategoryBtn = document.getElementById("nextCategoryBtn");
+    const submitVoteBtn = document.getElementById("submitVoteBtn");
+    const currentCategoryTitle = document.getElementById("currentCategoryTitle");
+    const currentCategoryMeta = document.getElementById("currentCategoryMeta");
+    const stepToast = document.getElementById("stepToast");
+    let toastTimer = null;
+    let currentStep = 0;
+
+    const isStepComplete = (stepEl) => {
+        if (!stepEl) {
+            return false;
+        }
+
+        const ratingGroups = stepEl.querySelectorAll(".star-rating");
+        for (const group of ratingGroups) {
+            if (!group.querySelector("input.star-input:checked")) {
+                return false;
+            }
+        }
+
+        return true;
+    };
+
+    const updateStepper = () => {
+        voteSteps.forEach((stepEl, index) => {
+            stepEl.style.display = index === currentStep ? "" : "none";
+        });
+
+        const activeStep = voteSteps[currentStep];
+        const categoryName = activeStep?.dataset?.category || "";
+        const gender = activeStep?.dataset?.gender || "";
+        const genderLabel = gender === "female" ? "Mrs UMU Rubaga" : "Mr UMU Rubaga";
+
+        if (currentCategoryTitle) {
+            currentCategoryTitle.textContent = `Step ${currentStep + 1} of ${voteSteps.length}`;
+        }
+        if (currentCategoryMeta) {
+            currentCategoryMeta.textContent = `${genderLabel} - ${categoryName}`;
+        }
+        if (prevCategoryBtn) {
+            prevCategoryBtn.disabled = currentStep === 0;
+        }
+        if (nextCategoryBtn) {
+            nextCategoryBtn.disabled = currentStep >= voteSteps.length - 1;
+        }
+        if (submitVoteBtn) {
+            submitVoteBtn.style.display = currentStep === voteSteps.length - 1 ? "inline-block" : "none";
+        }
+
+        if (activeStep) {
+            activeStep.classList.remove("step-change");
+            requestAnimationFrame(() => {
+                activeStep.classList.add("step-change");
+            });
+        }
+
+        if (stepToast) {
+            stepToast.textContent = `Now voting: ${genderLabel} - ${categoryName}`;
+            stepToast.classList.add("show");
+            if (toastTimer) {
+                clearTimeout(toastTimer);
+            }
+            toastTimer = setTimeout(() => {
+                stepToast.classList.remove("show");
+            }, 2200);
+        }
+    };
+
+    if (voteSteps.length) {
+        updateStepper();
+    }
+
+    prevCategoryBtn?.addEventListener("click", () => {
+        if (currentStep > 0) {
+            currentStep -= 1;
+            updateStepper();
+        }
+    });
+
+    nextCategoryBtn?.addEventListener("click", () => {
+        const activeStep = voteSteps[currentStep];
+        if (!isStepComplete(activeStep)) {
+            alert("Please rate every contestant in this category before continuing.");
+            return;
+        }
+
+        if (currentStep < voteSteps.length - 1) {
+            currentStep += 1;
+            updateStepper();
+        }
+    });
+
+    if (voteForm && voteSteps.length) {
+        voteForm.addEventListener("change", (event) => {
+            if (!event.target.classList.contains("star-input")) {
+                return;
+            }
+
+            const activeStep = voteSteps[currentStep];
+            if (!activeStep || !isStepComplete(activeStep)) {
+                return;
+            }
+
+            if (currentStep < voteSteps.length - 1) {
+                currentStep += 1;
+                updateStepper();
+            }
+        });
+    }
+
     const countdown = document.getElementById("countdown");
     const eventDate = countdown?.dataset?.eventDate;
 
