@@ -1,0 +1,5 @@
+so in admin setting when i start the setting in vottin g settings. the event date is not displayed even time,
+then votine enable when off it shouldnt work it seems to be working, then when voting start date starts it should pick that very time in cvoting setting and also end time not continuing as it is currenlty showing.
+
+the ui for for users it fine if u displaye each category at once then after them voting they either tap next or goes direct to another category but should be showing either mrs or mr. and all categories have to be selected and should be then seen who won in which category after all that provide the ultimate winner first going with females and finally males.
+and display them as last statemet with a option of a certificate download

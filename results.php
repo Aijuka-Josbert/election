@@ -15,6 +15,8 @@ $overallScores = [];
 $overallWinners = ['male' => null, 'female' => null];
 $chartLabels = [];
 $chartScores = [];
+$categoryLabels = [];
+$categoryAverages = [];
 
 if ($showResults) {
     $categoryScores = $pdo->query(
@@ -57,6 +59,19 @@ if ($showResults) {
         $chartLabels[] = $row['contestant_name'];
         $chartScores[] = round((float) $row['avg_score'], 2);
     }
+
+    $categoryAvgRows = $pdo->query(
+        'SELECT c.name AS category_name, AVG(v.score) AS avg_score
+         FROM categories c
+         JOIN votes v ON v.category_id = c.id
+         GROUP BY c.id
+         ORDER BY c.id'
+    )->fetchAll();
+
+    foreach ($categoryAvgRows as $row) {
+        $categoryLabels[] = $row['category_name'];
+        $categoryAverages[] = round((float) $row['avg_score'], 2);
+    }
 }
 ?>
 <section class="py-5">
@@ -75,13 +90,13 @@ if ($showResults) {
                 <?php foreach (['male' => 'Mr UMU Rubaga', 'female' => 'Mrs UMU Rubaga'] as $gender => $title): ?>
                     <?php $winner = $overallWinners[$gender]; ?>
                     <div class="col-md-6">
-                        <div class="leader-card">
+                        <div class="leader-card winner-spotlight">
                             <h4 class="mb-3"><?php echo h($title); ?></h4>
                             <?php if ($winner): ?>
                                 <div class="d-flex gap-3 align-items-center">
                                     <img class="contestant-img" style="width: 120px; height: 120px;" src="<?php echo h(asset_url($winner['photo'], $config)); ?>" alt="<?php echo h($winner['contestant_name']); ?>">
                                     <div>
-                                        <h5 class="mb-1"><?php echo h($winner['contestant_name']); ?></h5>
+                                        <h5 class="mb-1"><i class="bi bi-trophy-fill text-warning"></i> <?php echo h($winner['contestant_name']); ?></h5>
                                         <div class="text-muted">Average score: <?php echo number_format((float) $winner['avg_score'], 2); ?></div>
                                     </div>
                                 </div>
@@ -100,6 +115,16 @@ if ($showResults) {
                     height="140"
                     data-labels='<?php echo json_encode($chartLabels); ?>'
                     data-scores='<?php echo json_encode($chartScores); ?>'
+                ></canvas>
+            </div>
+
+            <div class="card-dark p-4 mb-5">
+                <h4 class="mb-3">Category averages</h4>
+                <canvas
+                    id="categoryChart"
+                    height="220"
+                    data-labels='<?php echo json_encode($categoryLabels); ?>'
+                    data-scores='<?php echo json_encode($categoryAverages); ?>'
                 ></canvas>
             </div>
 

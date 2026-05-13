@@ -1,18 +1,4 @@
 document.addEventListener("DOMContentLoaded", () => {
-    document.querySelectorAll("input[type='range']").forEach((range) => {
-        const output = range.closest(".range-wrap")?.querySelector(".range-value");
-        if (output) {
-            output.textContent = range.value;
-        }
-
-        range.addEventListener("input", () => {
-            if (output) {
-                output.textContent = range.value;
-            }
-            updateVoteProgress();
-        });
-    });
-
     const voteForm = document.getElementById("voteForm");
     const progressBar = document.getElementById("voteProgressBar");
     const progressText = document.getElementById("voteProgressText");
@@ -23,12 +9,10 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         const total = Number(voteForm.dataset.total || 0);
-        const inputs = voteForm.querySelectorAll("input[type='range']");
+        const inputs = voteForm.querySelectorAll("input.star-input:checked");
         let filled = 0;
-        inputs.forEach((input) => {
-            if (input.value !== "" && !Number.isNaN(Number(input.value))) {
-                filled += 1;
-            }
+        inputs.forEach(() => {
+            filled += 1;
         });
 
         const percent = total ? Math.round((filled / total) * 100) : 0;
@@ -37,6 +21,10 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     updateVoteProgress();
+
+    document.querySelectorAll(".star-input").forEach((input) => {
+        input.addEventListener("change", updateVoteProgress);
+    });
 
     const countdown = document.getElementById("countdown");
     const eventDate = countdown?.dataset?.eventDate;
@@ -84,7 +72,35 @@ document.addEventListener("DOMContentLoaded", () => {
                 },
                 options: {
                     plugins: { legend: { display: false } },
-                    scales: { y: { beginAtZero: true, max: 10 } },
+                    scales: { y: { beginAtZero: true, max: 5 } },
+                },
+            });
+        }
+    }
+
+    const categoryChart = document.getElementById("categoryChart");
+    if (categoryChart && window.Chart) {
+        const labels = JSON.parse(categoryChart.dataset.labels || "[]");
+        const scores = JSON.parse(categoryChart.dataset.scores || "[]");
+        if (labels.length) {
+            new Chart(categoryChart, {
+                type: "bar",
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: "Category average",
+                            data: scores,
+                            backgroundColor: "rgba(200, 16, 46, 0.5)",
+                            borderColor: "rgba(200, 16, 46, 1)",
+                            borderWidth: 1,
+                        },
+                    ],
+                },
+                options: {
+                    indexAxis: "y",
+                    plugins: { legend: { display: false } },
+                    scales: { x: { beginAtZero: true, max: 5 } },
                 },
             });
         }

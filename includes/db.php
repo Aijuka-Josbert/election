@@ -1,6 +1,8 @@
 <?php
 
 $config = require __DIR__ . '/../config/config.php';
+require_once __DIR__ . '/helpers.php';
+$config = runtime_config($config);
 
 $dsn = sprintf(
     'mysql:host=%s;dbname=%s;charset=%s',

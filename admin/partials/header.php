@@ -4,8 +4,7 @@ require_once __DIR__ . '/../../includes/helpers.php';
 $config = require __DIR__ . '/../../config/config.php';
 $pageTitle = $pageTitle ?? 'Admin - UMU Varsity Ball';
 $activePage = $activePage ?? '';
-$baseUrl = rtrim($config['app']['base_url'] ?? '', '/');
-$baseUrl = $baseUrl === '' ? '' : $baseUrl;
+$baseUrl = base_url($config);
 ?>
 <!DOCTYPE html>
 <html lang="en">

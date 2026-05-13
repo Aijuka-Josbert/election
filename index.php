@@ -68,7 +68,7 @@ $previewContestants = $previewStmt->fetchAll();
             <div class="col-md-4">
                 <div class="card-dark p-4 h-100">
                     <h3>Score based</h3>
-                    <p class="text-muted">Rate contestants 1-10 across every category to crown the real favorites.</p>
+                    <p class="text-muted">Rate contestants 1-5 across every category to crown the real favorites.</p>
                 </div>
             </div>
             <div class="col-md-4">
@@ -91,7 +91,7 @@ $previewContestants = $previewStmt->fetchAll();
                 <div class="col-md-3">
                     <div class="card-dark p-3 h-100">
                         <h5>Step 1</h5>
-                        <p class="text-muted mb-0">Every student rates each contestant from 1 to 10 in every category.</p>
+                        <p class="text-muted mb-0">Every student rates each contestant from 1 to 5 in every category.</p>
                     </div>
                 </div>
                 <div class="col-md-3">

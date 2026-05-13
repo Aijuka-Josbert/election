@@ -12,6 +12,14 @@ $userStmt = $pdo->prepare('SELECT has_voted FROM users WHERE id = ?');
 $userStmt->execute([$userId]);
 $user = $userStmt->fetch();
 $hasVoted = $user ? (int) $user['has_voted'] : 0;
+$voteCountStmt = $pdo->prepare('SELECT COUNT(*) FROM votes WHERE user_id = ?');
+$voteCountStmt->execute([$userId]);
+$voteCount = (int) $voteCountStmt->fetchColumn();
+if ($hasVoted === 1 && $voteCount === 0) {
+    $hasVoted = 0;
+    $updateFlag = $pdo->prepare('UPDATE users SET has_voted = 0 WHERE id = ?');
+    $updateFlag->execute([$userId]);
+}
 $votingOpen = (bool) ($config['app']['voting_open'] ?? true);
 $start = $config['app']['voting_start'] ?? '';
 $end = $config['app']['voting_end'] ?? '';
@@ -24,9 +32,13 @@ if ($start && $end) {
 
 $limit = (int) ($config['app']['category_limit'] ?? 10);
 $maleCategoriesStmt = $pdo->prepare('SELECT id, name, gender FROM categories WHERE gender = ? ORDER BY id LIMIT ?');
-$maleCategoriesStmt->execute(['male', $limit]);
+$maleCategoriesStmt->bindValue(1, 'male', PDO::PARAM_STR);
+$maleCategoriesStmt->bindValue(2, $limit, PDO::PARAM_INT);
+$maleCategoriesStmt->execute();
 $femaleCategoriesStmt = $pdo->prepare('SELECT id, name, gender FROM categories WHERE gender = ? ORDER BY id LIMIT ?');
-$femaleCategoriesStmt->execute(['female', $limit]);
+$femaleCategoriesStmt->bindValue(1, 'female', PDO::PARAM_STR);
+$femaleCategoriesStmt->bindValue(2, $limit, PDO::PARAM_INT);
+$femaleCategoriesStmt->execute();
 $categories = array_merge($maleCategoriesStmt->fetchAll(), $femaleCategoriesStmt->fetchAll());
 $contestants = $pdo->query('SELECT id, name, gender, photo, bio FROM contestants ORDER BY gender, name')->fetchAll();
 
@@ -57,8 +69,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$hasVoted && $votingOpen) {
                 }
 
                 $scoreValue = (int) $score;
-                if ($scoreValue < 1 || $scoreValue > 10) {
-                    $errors[] = 'Scores must be between 1 and 10.';
+                if ($scoreValue < 1 || $scoreValue > 5) {
+                    $errors[] = 'Scores must be between 1 and 5.';
                     break 2;
                 }
             }
@@ -158,7 +170,7 @@ foreach ($categories as $category) {
                             <div class="vote-group mb-4">
                                 <div class="d-flex justify-content-between align-items-center mb-3">
                                     <h4 class="mb-0"><?php echo h($category['name']); ?></h4>
-                                    <span class="badge badge-gold">Rate 1 - 10</span>
+                                    <span class="badge badge-gold">Rate 1 - 5</span>
                                 </div>
                                 <div class="row g-3">
                                     <?php foreach ($contestantsByGender[$genderKey] as $contestant): ?>
@@ -173,22 +185,19 @@ foreach ($categories as $category) {
                                                         <?php endif; ?>
                                                     </div>
                                                 </div>
-                                                <div class="range-wrap mt-3">
-                                                    <input
-                                                        type="range"
-                                                        class="form-range"
-                                                        min="1"
-                                                        max="10"
-                                                        step="1"
-                                                        name="scores[<?php echo (int) $category['id']; ?>][<?php echo (int) $contestant['id']; ?>]"
-                                                        value="5"
-                                                        required
-                                                    >
-                                                    <div class="d-flex justify-content-between">
-                                                        <small>1</small>
-                                                        <span class="range-value">5</span>
-                                                        <small>10</small>
-                                                    </div>
+                                                <div class="star-rating mt-3" role="radiogroup" aria-label="Rate <?php echo h($contestant['name']); ?>">
+                                                    <?php for ($star = 5; $star >= 1; $star--): ?>
+                                                        <?php $inputId = 'star_' . $category['id'] . '_' . $contestant['id'] . '_' . $star; ?>
+                                                        <input
+                                                            type="radio"
+                                                            class="star-input"
+                                                            id="<?php echo h($inputId); ?>"
+                                                            name="scores[<?php echo (int) $category['id']; ?>][<?php echo (int) $contestant['id']; ?>]"
+                                                            value="<?php echo $star; ?>"
+                                                            <?php echo $star === 5 ? 'required' : ''; ?>
+                                                        >
+                                                        <label for="<?php echo h($inputId); ?>" title="<?php echo $star; ?> stars">&#9733;</label>
+                                                    <?php endfor; ?>
                                                 </div>
                                             </div>
                                         </div>
@@ -225,7 +234,7 @@ foreach ($categories as $category) {
                                         ?>
                                         <tr>
                                             <td><?php echo h($contestant['name']); ?></td>
-                                            <td><?php echo (int) $scoreValue; ?>/10</td>
+                                            <td><?php echo (int) $scoreValue; ?>/5</td>
                                         </tr>
                                     <?php endforeach; ?>
                                 </tbody>

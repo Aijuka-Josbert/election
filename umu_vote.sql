@@ -50,9 +50,6 @@ INSERT INTO `categories` VALUES
 (8,'Most Entertaining','male','2026-05-13 12:53:26'),
 (9,'Smart (Dress Code)','male','2026-05-13 12:53:26'),
 (10,'Brains (Outside the Box)','male','2026-05-13 12:53:26'),
-(11,'Talent','male','2026-05-13 12:53:26'),
-(12,'Confidence','male','2026-05-13 12:53:26'),
-(13,'Self Awareness','male','2026-05-13 12:53:26'),
 (14,'Smartest','female','2026-05-13 12:53:26'),
 (15,'Most Approachable','female','2026-05-13 12:53:26'),
 (16,'Most Stylish','female','2026-05-13 12:53:26'),
@@ -62,10 +59,7 @@ INSERT INTO `categories` VALUES
 (20,'Best Smile','female','2026-05-13 12:53:26'),
 (21,'Most Entertaining','female','2026-05-13 12:53:26'),
 (22,'Smart (Dress Code)','female','2026-05-13 12:53:26'),
-(23,'Brains (Outside the Box)','female','2026-05-13 12:53:26'),
-(24,'Talent','female','2026-05-13 12:53:26'),
-(25,'Confidence','female','2026-05-13 12:53:26'),
-(26,'Self Awareness','female','2026-05-13 12:53:26');
+(23,'Brains (Outside the Box)','female','2026-05-13 12:53:26');
 /*!40000 ALTER TABLE `categories` ENABLE KEYS */;
 UNLOCK TABLES;
 COMMIT;
@@ -98,9 +92,9 @@ LOCK TABLES `contestants` WRITE;
 /*!40000 ALTER TABLE `contestants` DISABLE KEYS */;
 INSERT INTO `contestants` VALUES
 (1,'Wamani Sedrack','male','uploads/contestants/contestant_6a0474e988eb70.70543319.jpg','BSIT Yr 2','2026-05-13 12:56:09'),
-(2,'Ekou Jeremiah','male','uploads/contestants/contestant_6a047502bd0326.77468442.jpg','BSIT 1','2026-05-13 12:56:34'),
-(3,'Mariam Nnamale Nsereko','female','uploads/contestants/contestant_6a04752b8ba4d8.74495667.jpg','SASS Yr 1','2026-05-13 12:57:15'),
-(4,'Maria','female','uploads/contestants/contestant_6a047d8620d3b4.94996148.jpg',NULL,'2026-05-13 13:32:54');
+(2,'Ekou Jeremiah','male','uploads/contestants/contestant_6a04932a778aa2.00110331.jpg','BSIT 1','2026-05-13 12:56:34'),
+(3,'Nnamale  Mariam Nsereko','female','uploads/contestants/contestant_6a04752b8ba4d8.74495667.jpg','SASS Yr 1','2026-05-13 12:57:15'),
+(4,'Nerima Maria','female','uploads/contestants/contestant_6a047d8620d3b4.94996148.jpg',NULL,'2026-05-13 13:32:54');
 /*!40000 ALTER TABLE `contestants` ENABLE KEYS */;
 UNLOCK TABLES;
 COMMIT;
@@ -123,7 +117,7 @@ CREATE TABLE `users` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `google_id` (`google_id`),
   UNIQUE KEY `email` (`email`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -134,7 +128,8 @@ SET @OLD_AUTOCOMMIT=@@AUTOCOMMIT, @@AUTOCOMMIT=0;
 LOCK TABLES `users` WRITE;
 /*!40000 ALTER TABLE `users` DISABLE KEYS */;
 INSERT INTO `users` VALUES
-(1,'118273761186437018046','AIJUKA JOSBERT','josbert.aijuka@stud.umu.ac.ug',1,'2026-05-13 12:55:32');
+(1,'118273761186437018046','AIJUKA JOSBERT','josbert.aijuka@stud.umu.ac.ug',0,'2026-05-13 12:55:32'),
+(2,'104564024239608837479','NAKANWAGI PAMELA MAUREEN','pamela.nakanwagi@stud.umu.ac.ug',0,'2026-05-13 14:56:47');
 /*!40000 ALTER TABLE `users` ENABLE KEYS */;
 UNLOCK TABLES;
 COMMIT;
@@ -161,7 +156,7 @@ CREATE TABLE `votes` (
   CONSTRAINT `fk_votes_category` FOREIGN KEY (`category_id`) REFERENCES `categories` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_votes_contestant` FOREIGN KEY (`contestant_id`) REFERENCES `contestants` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_votes_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=53 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=41 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -171,59 +166,6 @@ CREATE TABLE `votes` (
 SET @OLD_AUTOCOMMIT=@@AUTOCOMMIT, @@AUTOCOMMIT=0;
 LOCK TABLES `votes` WRITE;
 /*!40000 ALTER TABLE `votes` DISABLE KEYS */;
-INSERT INTO `votes` VALUES
-(1,1,2,1,8,'2026-05-13 13:37:34'),
-(2,1,1,1,5,'2026-05-13 13:37:34'),
-(3,1,2,2,5,'2026-05-13 13:37:34'),
-(4,1,1,2,8,'2026-05-13 13:37:34'),
-(5,1,2,3,5,'2026-05-13 13:37:34'),
-(6,1,1,3,9,'2026-05-13 13:37:34'),
-(7,1,2,4,5,'2026-05-13 13:37:34'),
-(8,1,1,4,8,'2026-05-13 13:37:34'),
-(9,1,2,5,9,'2026-05-13 13:37:34'),
-(10,1,1,5,5,'2026-05-13 13:37:34'),
-(11,1,2,6,5,'2026-05-13 13:37:34'),
-(12,1,1,6,5,'2026-05-13 13:37:34'),
-(13,1,2,7,5,'2026-05-13 13:37:34'),
-(14,1,1,7,9,'2026-05-13 13:37:34'),
-(15,1,2,8,5,'2026-05-13 13:37:34'),
-(16,1,1,8,8,'2026-05-13 13:37:34'),
-(17,1,2,9,9,'2026-05-13 13:37:34'),
-(18,1,1,9,5,'2026-05-13 13:37:34'),
-(19,1,2,10,5,'2026-05-13 13:37:34'),
-(20,1,1,10,9,'2026-05-13 13:37:34'),
-(21,1,2,11,8,'2026-05-13 13:37:34'),
-(22,1,1,11,5,'2026-05-13 13:37:34'),
-(23,1,2,12,5,'2026-05-13 13:37:34'),
-(24,1,1,12,9,'2026-05-13 13:37:34'),
-(25,1,2,13,10,'2026-05-13 13:37:34'),
-(26,1,1,13,5,'2026-05-13 13:37:34'),
-(27,1,4,14,5,'2026-05-13 13:37:34'),
-(28,1,3,14,8,'2026-05-13 13:37:34'),
-(29,1,4,15,5,'2026-05-13 13:37:34'),
-(30,1,3,15,8,'2026-05-13 13:37:34'),
-(31,1,4,16,5,'2026-05-13 13:37:34'),
-(32,1,3,16,7,'2026-05-13 13:37:34'),
-(33,1,4,17,8,'2026-05-13 13:37:34'),
-(34,1,3,17,5,'2026-05-13 13:37:34'),
-(35,1,4,18,8,'2026-05-13 13:37:34'),
-(36,1,3,18,5,'2026-05-13 13:37:34'),
-(37,1,4,19,5,'2026-05-13 13:37:34'),
-(38,1,3,19,8,'2026-05-13 13:37:34'),
-(39,1,4,20,5,'2026-05-13 13:37:34'),
-(40,1,3,20,8,'2026-05-13 13:37:34'),
-(41,1,4,21,5,'2026-05-13 13:37:34'),
-(42,1,3,21,8,'2026-05-13 13:37:34'),
-(43,1,4,22,5,'2026-05-13 13:37:34'),
-(44,1,3,22,7,'2026-05-13 13:37:34'),
-(45,1,4,23,8,'2026-05-13 13:37:34'),
-(46,1,3,23,5,'2026-05-13 13:37:34'),
-(47,1,4,24,8,'2026-05-13 13:37:34'),
-(48,1,3,24,5,'2026-05-13 13:37:34'),
-(49,1,4,25,5,'2026-05-13 13:37:34'),
-(50,1,3,25,8,'2026-05-13 13:37:34'),
-(51,1,4,26,5,'2026-05-13 13:37:34'),
-(52,1,3,26,8,'2026-05-13 13:37:34');
 /*!40000 ALTER TABLE `votes` ENABLE KEYS */;
 UNLOCK TABLES;
 COMMIT;
@@ -238,4 +180,4 @@ SET AUTOCOMMIT=@OLD_AUTOCOMMIT;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*M!100616 SET NOTE_VERBOSITY=@OLD_NOTE_VERBOSITY */;
 
--- Dump completed on 2026-05-13 16:41:51
+-- Dump completed on 2026-05-13 20:18:27

@@ -39,6 +39,17 @@ CREATE TABLE votes (
     CONSTRAINT fk_votes_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- delete extra categories beyond your top 10 per gender
+DELETE FROM categories
+WHERE id NOT IN (
+  SELECT id FROM (
+    SELECT id FROM categories WHERE gender='male' ORDER BY id LIMIT 10
+  ) m
+  UNION ALL
+  SELECT id FROM (
+    SELECT id FROM categories WHERE gender='female' ORDER BY id LIMIT 10
+  ) f
+);
 TRUNCATE TABLE categories;
 INSERT INTO categories (name, gender) VALUES
 ('Smartest', 'male'),
@@ -67,3 +78,6 @@ INSERT INTO categories (name, gender) VALUES
 ('Talent', 'female'),
 ('Confidence', 'female'),
 ('Self Awareness', 'female');
+
+UPDATE users SET has_voted = 0 WHERE id = 1;
+DELETE FROM votes WHERE user_id = 1;
