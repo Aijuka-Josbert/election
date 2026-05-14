@@ -1,4 +1,9 @@
 <?php
+/*
+ * admin/contestants.php
+ * Admin UI for adding, updating and deleting contestants. Handles file
+ * uploads with validations and cleans up old files when a photo is replaced.
+ */
 require_once __DIR__ . '/../includes/admin_auth.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/helpers.php';
@@ -11,10 +16,12 @@ $errors = [];
 $success = '';
 $editContestant = null;
 
+// Handle create / update / delete actions submitted by the admin form
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? 'add';
 
     if ($action === 'delete') {
+        // Delete contestant record and remove the photo if it exists under uploads
         $contestantId = (int) ($_POST['contestant_id'] ?? 0);
         if ($contestantId > 0) {
             $stmt = $pdo->prepare('SELECT photo FROM contestants WHERE id = ?');
@@ -35,6 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $success = 'Contestant deleted.';
         }
     } elseif ($action === 'update') {
+        // Update existing contestant: validate inputs and optional new photo
         $contestantId = (int) ($_POST['contestant_id'] ?? 0);
         $name = trim($_POST['name'] ?? '');
         $gender = $_POST['gender'] ?? '';
@@ -62,6 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $newPhotoPath = null;
         if ($photo && $photo['error'] !== UPLOAD_ERR_NO_FILE) {
+            // Validate uploaded file (error, size, mime)
             if ($photo['error'] !== UPLOAD_ERR_OK) {
                 $errors[] = 'Photo upload failed. Please choose a valid image.';
             } elseif ($photo['size'] > $config['uploads']['max_size']) {
@@ -102,6 +111,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $update = $pdo->prepare('UPDATE contestants SET name = ?, gender = ?, photo = ?, bio = ? WHERE id = ?');
                 $update->execute([$name, $gender, $photoToSave, $bio ?: null, $contestantId]);
 
+                // Remove previous photo file when replaced
                 if ($newPhotoPath && $existing && !empty($existing['photo'])) {
                     $photoPath = realpath(__DIR__ . '/../' . $existing['photo']);
                     $uploadsPath = realpath($config['uploads']['contestants_dir']);
@@ -114,6 +124,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     } else {
+        // Add new contestant (requires photo)
         $name = trim($_POST['name'] ?? '');
         $gender = $_POST['gender'] ?? '';
         $bio = trim($_POST['bio'] ?? '');
@@ -134,6 +145,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = 'Uploads folder is not writable.';
         }
 
+        // Validate photo presence and type
         if (!$photo || $photo['error'] !== UPLOAD_ERR_OK) {
             $errors[] = 'Photo upload failed. Please choose a valid image.';
         } elseif ($photo['size'] > $config['uploads']['max_size']) {

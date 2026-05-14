@@ -1,5 +1,11 @@
 <?php
 
+/*
+ * includes/session.php
+ * Configure session cookie parameters to improve security (Secure, HttpOnly,
+ * SameSite) and start the PHP session if not already active.
+ */
+
 function is_https(): bool
 {
     if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
@@ -23,6 +29,7 @@ session_set_cookie_params([
     'samesite' => 'Lax',
 ]);
 
+// Start session if not already started
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
 }

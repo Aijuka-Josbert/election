@@ -1,4 +1,9 @@
 <?php
+/*
+ * helpers.php
+ * Small utility helpers used across the app for escaping, URL helpers,
+ * environment resolution and simple app settings persistence.
+ */
 
 function h(string $value): string
 {
@@ -16,6 +21,7 @@ function is_admin(array $config): bool
         return false;
     }
 
+    // Admins are determined by email address listed in the config
     return in_array($_SESSION['user_email'], $config['app']['admin_emails'], true);
 }
 
@@ -85,6 +91,7 @@ function absolute_base_url(array $config): string
 
 function resolve_environment(array $config): string
 {
+    // Determine which environment configuration to use based on host
     $host = strtolower($_SERVER['HTTP_HOST'] ?? '');
     $envs = $config['environments'] ?? [];
     foreach ($envs as $envName => $envConfig) {
@@ -101,6 +108,7 @@ function resolve_environment(array $config): string
 
 function runtime_config(array $config): array
 {
+    // Apply environment-specific overrides (e.g., DB credentials)
     $envName = resolve_environment($config);
     $envs = $config['environments'] ?? [];
     $envConfig = $envs[$envName] ?? [];
@@ -124,6 +132,7 @@ function ensure_settings_table(PDO $pdo): void
 
 function fetch_app_settings(PDO $pdo): array
 {
+    // Read app-level settings stored in DB and return as key => value array
     try {
         ensure_settings_table($pdo);
         $rows = $pdo->query('SELECT setting_key, setting_value FROM app_settings')->fetchAll();
@@ -145,7 +154,7 @@ function apply_app_settings(array $config, PDO $pdo): array
     if (!$settings) {
         return $config;
     }
-
+    // Map persisted settings (strings) into proper types and merge into config
     $app = $config['app'] ?? [];
     foreach ($settings as $key => $value) {
         switch ($key) {
@@ -168,6 +177,7 @@ function apply_app_settings(array $config, PDO $pdo): array
 
 function save_app_settings(PDO $pdo, array $settings): bool
 {
+    // Persist a set of application settings into the DB
     try {
         ensure_settings_table($pdo);
         $stmt = $pdo->prepare('REPLACE INTO app_settings (setting_key, setting_value) VALUES (?, ?)');

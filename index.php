@@ -1,7 +1,13 @@
-<?php
+@<?php
+/*
+ * index.php
+ * Public landing page — shows a hero, event details and a preview of recent
+ * contestants. Links to login/vote/results depending on authentication state.
+ */
 require_once __DIR__ . '/includes/header.php';
 require_once __DIR__ . '/includes/db.php';
 
+// Fetch a small set of recent contestants to display on the homepage
 $previewStmt = $pdo->query("SELECT id, name, gender, photo, bio FROM contestants ORDER BY created_at DESC LIMIT 6");
 $previewContestants = $previewStmt->fetchAll();
 ?>

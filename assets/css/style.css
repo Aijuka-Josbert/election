@@ -56,6 +56,14 @@ h1, h2, h3, h4 {
     letter-spacing: 0.3px;
 }
 
+.auth-action {
+    display: inline-block;
+}
+
+.auth-action .btn {
+    white-space: nowrap;
+}
+
 .nav-link {
     font-size: 0.95rem;
 }
@@ -138,8 +146,35 @@ h1, h2, h3, h4 {
 .vote-group {
     border: 1px solid rgba(0, 0, 0, 0.06);
     border-radius: 20px;
-    padding: 24px;
+    padding: 22px;
     background: #ffffff;
+}
+
+.gender-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding-bottom: 12px;
+    border-bottom: 2px solid rgba(201, 162, 39, 0.2);
+}
+
+.gender-section-header h5 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #111111;
+    margin: 0;
+}
+
+.gender-section-header small {
+    color: var(--umu-gold);
+    font-size: 0.75rem;
+    letter-spacing: 1px;
+}
+
+.contestants-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
 }
 
 .range-value {
@@ -233,6 +268,88 @@ h1, h2, h3, h4 {
 
 .vote-step.step-change {
     animation: stepPulse 0.45s ease-out;
+}
+
+.vote-stepper-inner {
+    width: 100%;
+}
+
+.vote-stepper-actions {
+    justify-content: flex-end;
+}
+
+@media (max-width: 767.98px) {
+    .vote-group {
+        padding: 16px;
+        border-radius: 16px;
+    }
+
+    .vote-group .card-dark {
+        padding: 14px !important;
+    }
+
+    .gender-section-header {
+        margin-bottom: 12px;
+    }
+
+    .gender-section-header h5 {
+        font-size: 1rem;
+    }
+
+    .contestant-img {
+        height: 150px;
+        padding: 6px;
+        border-radius: 12px;
+    }
+
+    .star-rating label {
+        font-size: 1.2rem;
+    }
+
+    .vote-stepper-inner {
+        flex-direction: column;
+        align-items: stretch !important;
+    }
+
+    .vote-stepper-actions {
+        width: 100%;
+        justify-content: stretch;
+    }
+
+    .vote-stepper-actions .btn {
+        flex: 1 1 100%;
+    }
+
+    .vote-sticky-bar {
+        bottom: 10px;
+    }
+
+    .vote-form {
+        padding-bottom: 160px;
+    }
+
+    .step-toast {
+        bottom: 150px;
+        width: calc(100% - 24px);
+        max-width: 420px;
+        text-align: center;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .vote-group {
+        padding: 14px;
+    }
+
+    .gender-section-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+    }
+
+    .vote-group .row.g-4 {
+        --bs-gutter-x: 0.75rem;
+    }
 }
 
 @keyframes stepPulse {

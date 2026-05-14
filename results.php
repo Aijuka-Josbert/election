@@ -1,4 +1,10 @@
 <?php
+/*
+ * results.php
+ * Admin-facing results and leaderboards. Calculates category averages and
+ * overall averages using SQL AVG() and prepares data for charts.
+ * Only visible to admins by default; the $showResults flag controls visibility.
+ */
 $pageTitle = 'Results - UMU Varsity Ball';
 $config = require __DIR__ . '/config/config.php';
 require_once __DIR__ . '/includes/header.php';
@@ -28,6 +34,7 @@ $categoryLabels = [];
 $categoryAverages = [];
 
 if ($showResults) {
+    // Category-level averages and top contestants per category
     $categoryScores = $pdo->query(
         'SELECT c.id AS category_id, c.name AS category_name, c.gender,
                 con.id AS contestant_id, con.name AS contestant_name, con.photo,
@@ -46,6 +53,7 @@ if ($showResults) {
         }
     }
 
+    // Overall contestant averages across all categories
     $overallScores = $pdo->query(
         'SELECT con.id AS contestant_id, con.name AS contestant_name, con.gender, con.photo,
                 AVG(v.score) AS avg_score
@@ -64,11 +72,13 @@ if ($showResults) {
         }
     }
 
+    // Prepare top-5 labels and scores for a chart
     foreach (array_slice($overallScores, 0, 5) as $row) {
         $chartLabels[] = $row['contestant_name'];
         $chartScores[] = round((float) $row['avg_score'], 2);
     }
 
+    // Category-wise average scores for charting
     $categoryAvgRows = $pdo->query(
         'SELECT c.name AS category_name, AVG(v.score) AS avg_score
          FROM categories c

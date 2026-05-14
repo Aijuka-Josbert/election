@@ -1,4 +1,12 @@
 <?php
+/*
+ * config.php
+ * Application configuration (database credentials, Google OAuth keys,
+ * uploads settings and app flags). Sensitive values should be overridden
+ * in `config.local.php` which is loaded if present to avoid committing
+ * secrets into source control.
+ */
+
 $host = $_SERVER['HTTP_HOST'] ?? '';
 $isLive = strpos($host, 'umuelections.fwh.is') !== false;
 $config = [
@@ -6,7 +14,7 @@ $config = [
         'host' => 'localhost',
         'name' => 'umu_vote',
         'user' => 'root',
-        'pass' => '!Log19tan88',
+        'pass' => 'ianmufasa9114',
         'charset' => 'utf8mb4',
     ],
     'environments' => [
@@ -16,7 +24,7 @@ $config = [
                 'host' => 'localhost',
                 'name' => 'umu_vote',
                 'user' => 'root',
-                'pass' => '!Log19tan88',
+                'pass' => 'ianmufasa9114',
                 'charset' => 'utf8mb4',
             ],
         ],

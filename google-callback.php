@@ -1,4 +1,10 @@
 <?php
+/*
+ * google-callback.php
+ * Handles the OAuth callback from Google. Exchanges the authorization code
+ * for an access token, fetches basic profile info, validates the email domain
+ * and upserts the user into the local `users` table. Finally sets session.
+ */
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/helpers.php';
@@ -11,6 +17,7 @@ if (empty($_GET['code'])) {
     exit;
 }
 
+// Exchange code for token
 $client = new Google_Client();
 $client->setClientId($config['google']['client_id']);
 $client->setClientSecret($config['google']['client_secret']);
@@ -26,6 +33,7 @@ $client->setAccessToken($token['access_token']);
 $oauth = new Google_Service_Oauth2($client);
 $userInfo = $oauth->userinfo->get();
 
+// Enforce allowed email domain (e.g., stud.umu.ac.ug)
 $email = strtolower($userInfo->email ?? '');
 $domain = substr(strrchr($email, '@') ?: '', 1);
 
@@ -37,6 +45,7 @@ if ($domain !== $config['app']['allowed_domain']) {
 $googleId = $userInfo->id ?? '';
 $name = $userInfo->name ?? 'UMU Student';
 
+// Insert or update a local user record based on Google ID or email
 $stmt = $pdo->prepare('SELECT id, has_voted FROM users WHERE google_id = :google_id OR email = :email LIMIT 1');
 $stmt->execute([
     'google_id' => $googleId,
@@ -64,6 +73,7 @@ if ($user) {
     $hasVoted = 0;
 }
 
+// Set up the authenticated session and redirect to voting
 session_regenerate_id(true);
 $_SESSION['user_id'] = $userId;
 $_SESSION['user_name'] = $name;

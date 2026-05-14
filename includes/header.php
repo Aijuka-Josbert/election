@@ -48,14 +48,14 @@ $baseUrl = base_url($config);
                     <li class="nav-item"><a class="nav-link" href="<?php echo h($baseUrl . '/admin/index.php'); ?>">Admin</a></li>
                 <?php endif; ?>
             </ul>
-            <div class="ms-lg-4 mt-3 mt-lg-0">
+        </div>
+            <div class="ms-lg-4 mt-3 mt-lg-0 auth-action">
                 <?php if (is_logged_in()): ?>
                     <a class="btn btn-outline-light btn-sm" href="<?php echo h($baseUrl . '/logout.php'); ?>">Logout</a>
                 <?php else: ?>
                     <a class="btn btn-primary btn-sm" href="<?php echo h($baseUrl . '/login.php'); ?>">Login with Google</a>
                 <?php endif; ?>
             </div>
-        </div>
     </div>
 </nav>
 <main>
