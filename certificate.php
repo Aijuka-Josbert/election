@@ -57,23 +57,28 @@ function pdf_escape(string $value): string
 
 $issuedOn = date('Y-m-d');
 $lines = [
-    ['text' => 'Certificate of Achievement', 'size' => 24, 'x' => 72, 'y' => 760],
-    ['text' => 'This certificate recognizes the overall winners of the', 'size' => 12, 'x' => 72, 'y' => 730],
-    ['text' => $eventName, 'size' => 16, 'x' => 72, 'y' => 710],
-    ['text' => 'Mr UMU Rubaga: ' . $maleName, 'size' => 14, 'x' => 72, 'y' => 670],
-    ['text' => 'Mrs UMU Rubaga: ' . $femaleName, 'size' => 14, 'x' => 72, 'y' => 650],
+    ['text' => 'Certificate of Achievement', 'size' => 28, 'x' => 72, 'y' => 780, 'font' => 'F2'],
+    ['text' => 'This certificate recognizes the overall winners of the', 'size' => 12, 'x' => 72, 'y' => 745],
+    ['text' => 'UMU Rubaga Varsity Ball', 'size' => 18, 'x' => 72, 'y' => 720],
+    ['text' => '', 'size' => 10, 'x' => 72, 'y' => 690],
+    ['text' => 'BEST MAN - UMU Rubaga', 'size' => 12, 'x' => 72, 'y' => 670],
+    ['text' => $maleName, 'size' => 16, 'x' => 72, 'y' => 650],
+    ['text' => '', 'size' => 8, 'x' => 72, 'y' => 630],
+    ['text' => 'BEST WOMAN - UMU Rubaga', 'size' => 12, 'x' => 72, 'y' => 610],
+    ['text' => $femaleName, 'size' => 16, 'x' => 72, 'y' => 590],
 ];
 
 if ($eventDate !== '') {
-    $lines[] = ['text' => 'Event date: ' . $eventDate, 'size' => 10, 'x' => 72, 'y' => 620];
+    $lines[] = ['text' => 'Event date: ' . $eventDate, 'size' => 10, 'x' => 72, 'y' => 560];
 }
 
-$lines[] = ['text' => 'Issued on ' . $issuedOn, 'size' => 10, 'x' => 72, 'y' => 600];
+$lines[] = ['text' => 'Issued on ' . $issuedOn, 'size' => 10, 'x' => 72, 'y' => 540];
 
 $content = "";
 foreach ($lines as $line) {
+    $font = $line['font'] ?? 'F1';
     $content .= "BT\n";
-    $content .= "/F1 {$line['size']} Tf\n";
+    $content .= "/{$font} {$line['size']} Tf\n";
     $content .= "{$line['x']} {$line['y']} Td\n";
     $content .= "(" . pdf_escape($line['text']) . ") Tj\n";
     $content .= "ET\n";
@@ -82,9 +87,10 @@ foreach ($lines as $line) {
 $objects = [];
 $objects[] = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
 $objects[] = "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n";
-$objects[] = "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n";
+$objects[] = "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R /F2 6 0 R >> >> /Contents 5 0 R >>\nendobj\n";
 $objects[] = "4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n";
 $objects[] = "5 0 obj\n<< /Length " . strlen($content) . " >>\nstream\n" . $content . "endstream\nendobj\n";
+$objects[] = "6 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Stonehenge >>\nendobj\n";
 
 $pdf = "%PDF-1.4\n";
 $offsets = [0];
@@ -103,7 +109,10 @@ for ($i = 1; $i < count($offsets); $i++) {
 $pdf .= "trailer\n<< /Size " . count($offsets) . " /Root 1 0 R >>\n";
 $pdf .= "startxref\n" . $xrefPosition . "\n%%EOF";
 
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('Expires: 0');
 header('Content-Type: application/pdf');
-header('Content-Disposition: attachment; filename="umu_vote_winners_certificate.pdf"');
+header('Content-Disposition: attachment; filename="umu_vote_winners_certificate_' . date('Ymd_His') . '.pdf"');
 header('Content-Length: ' . strlen($pdf));
 echo $pdf;

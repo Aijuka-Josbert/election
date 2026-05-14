@@ -100,14 +100,45 @@ document.addEventListener("DOMContentLoaded", () => {
         updateStepper();
     }
 
-    prevCategoryBtn?.addEventListener("click", () => {
+    const bindTap = (el, handler) => {
+        if (!el) {
+            return;
+        }
+
+        let lastTouchAt = 0;
+
+        el.addEventListener("touchend", (e) => {
+            lastTouchAt = Date.now();
+            handler(e);
+        }, { passive: false });
+
+        el.addEventListener("click", (e) => {
+            if (Date.now() - lastTouchAt < 600) {
+                return;
+            }
+            handler(e);
+        });
+    };
+
+    const handlePrevClick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         if (currentStep > 0) {
             currentStep -= 1;
             updateStepper();
+            // Scroll to top on mobile
+            if (window.innerWidth < 768) {
+                setTimeout(() => {
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                }, 100);
+            }
         }
-    });
+    };
+    bindTap(prevCategoryBtn, handlePrevClick);
 
-    nextCategoryBtn?.addEventListener("click", () => {
+    const handleNextClick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         const activeStep = voteSteps[currentStep];
         if (!isStepComplete(activeStep)) {
             alert("Please rate every contestant in this category before continuing.");
@@ -117,8 +148,15 @@ document.addEventListener("DOMContentLoaded", () => {
         if (currentStep < voteSteps.length - 1) {
             currentStep += 1;
             updateStepper();
+            // Scroll to top on mobile
+            if (window.innerWidth < 768) {
+                setTimeout(() => {
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                }, 100);
+            }
         }
-    });
+    };
+    bindTap(nextCategoryBtn, handleNextClick);
 
     if (voteForm && voteSteps.length) {
         voteForm.addEventListener("change", (event) => {

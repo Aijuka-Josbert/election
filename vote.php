@@ -31,6 +31,10 @@ $tz = new DateTimeZone($tzName);
 $now = new DateTime('now', $tz);
 $startTime = $start ? new DateTime($start, $tz) : null;
 $endTime = $end ? new DateTime($end, $tz) : null;
+
+if ($startTime && $endTime && $endTime <= $startTime) {
+    $endTime = (clone $endTime)->modify('+1 day');
+}
 $votingStatusMessage = '';
 
 if (!$votingOpen) {
@@ -82,7 +86,20 @@ $success = false;
 $submittedScores = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$hasVoted && $votingOpen) {
-    if (!$categories || !$contestants) {
+    // RE-VALIDATE voting time at submission to prevent race conditions
+    $nowSubmit = new DateTime('now', $tz);
+    $votingOpenAtSubmit = true;
+    if ($startTime && $endTime) {
+        $votingOpenAtSubmit = $nowSubmit >= $startTime && $nowSubmit <= $endTime;
+    } elseif ($startTime) {
+        $votingOpenAtSubmit = $nowSubmit >= $startTime;
+    } elseif ($endTime) {
+        $votingOpenAtSubmit = $nowSubmit <= $endTime;
+    }
+    
+    if (!$votingOpenAtSubmit) {
+        $errors[] = 'Voting window has closed. Your submission could not be processed.';
+    } elseif (!$categories || !$contestants) {
         $errors[] = 'Voting is not ready. Please check back later.';
     } else {
         foreach ($categories as $category) {

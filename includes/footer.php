@@ -7,6 +7,12 @@
 </footer>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="assets/js/main.js"></script>
+<?php
+$mainJsUrl = 'assets/js/main.js';
+if (isset($config) && function_exists('asset_url_versioned')) {
+    $mainJsUrl = asset_url_versioned('assets/js/main.js', $config);
+}
+?>
+<script src="<?php echo h($mainJsUrl); ?>"></script>
 </body>
 </html>

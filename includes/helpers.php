@@ -53,6 +53,22 @@ function asset_url(string $path, array $config): string
     return $base . '/' . $cleanPath;
 }
 
+function asset_url_versioned(string $path, array $config): string
+{
+    $url = asset_url($path, $config);
+    $cleanPath = ltrim($path, '/');
+    $fullPath = __DIR__ . '/../' . $cleanPath;
+
+    if (!is_file($fullPath)) {
+        return $url;
+    }
+
+    $version = (string) filemtime($fullPath);
+    $separator = strpos($url, '?') === false ? '?' : '&';
+
+    return $url . $separator . 'v=' . rawurlencode($version);
+}
+
 function absolute_base_url(array $config): string
 {
     $basePath = base_url($config);

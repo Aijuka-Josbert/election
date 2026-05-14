@@ -11,6 +11,7 @@ $activePage = 'settings';
 
 $success = '';
 $errors = [];
+$warnings = [];
 $settingsWritable = isset($pdo);
 $settingsMode = 'database';
 
@@ -24,6 +25,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
     $eventDate = trim($_POST['event_date'] ?? '');
     $eventTime = trim($_POST['event_time'] ?? '');
+    $tzName = $config['app']['timezone'] ?? 'UTC';
+    $tz = new DateTimeZone($tzName);
     $config['app']['voting_open'] = !empty($_POST['voting_open']);
     $config['app']['results_public'] = !empty($_POST['results_public']);
     $startDate = trim($_POST['voting_start_date'] ?? '');
@@ -44,6 +47,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $config['app']['event_date'] = $eventDate
         ? $eventDate . ' ' . $resolvedEventTime . ':00'
         : '';
+
+    if ($config['app']['voting_start'] !== '' && $config['app']['voting_end'] !== '') {
+        $startCheck = new DateTime($config['app']['voting_start'], $tz);
+        $endCheck = new DateTime($config['app']['voting_end'], $tz);
+        if ($endCheck <= $startCheck) {
+            $endCheck->modify('+1 day');
+            $config['app']['voting_end'] = $endCheck->format('Y-m-d H:i:s');
+            $warnings[] = 'Voting end time was before start time. End date was moved to the next day.';
+        }
+    }
 
     $saveOk = save_app_settings($pdo, [
         'event_date' => $config['app']['event_date'] ?? '',
@@ -95,6 +108,10 @@ $now = new DateTime('now', $tz);
 $startTime = $startValue !== '' ? new DateTime($startValue, $tz) : null;
 $endTime = $endValue !== '' ? new DateTime($endValue, $tz) : null;
 
+if ($startTime && $endTime && $endTime <= $startTime) {
+    $endTime = (clone $endTime)->modify('+1 day');
+}
+
 if ($statusOpen) {
     $statusMessage = 'Voting is enabled and has no time window.';
     $statusClass = 'alert-success';
@@ -132,6 +149,13 @@ if ($statusOpen) {
     <div class="alert alert-danger">
         <?php foreach ($errors as $error): ?>
             <div><?php echo h($error); ?></div>
+        <?php endforeach; ?>
+    </div>
+<?php endif; ?>
+<?php if ($warnings): ?>
+    <div class="alert alert-warning">
+        <?php foreach ($warnings as $warning): ?>
+            <div><?php echo h($warning); ?></div>
         <?php endforeach; ?>
     </div>
 <?php endif; ?>
