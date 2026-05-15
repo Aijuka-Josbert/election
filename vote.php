@@ -18,6 +18,9 @@ if (isset($pdo)) {
 $pageTitle = 'Vote - UMU Varsity Ball';
 require_once __DIR__ . '/includes/header.php';
 
+// Check if user is admin
+$isAdmin = is_logged_in() && is_admin($config);
+
 // Load user voting flag and sanitize user ID
 $userId = (int) $_SESSION['user_id'];
 $userStmt = $pdo->prepare('SELECT has_voted FROM users WHERE id = ?');
@@ -209,6 +212,63 @@ $totalRatings = 0;
 foreach ($categories as $category) {
     $totalRatings += count($contestants);
 }
+
+// Load current winners and leaders for display after voting
+$categoryLeaders = [];
+$overallWinners = ['male' => null, 'female' => null];
+
+if ($hasVoted) {
+    // Get category leaders, separated by gender for "all" categories
+    $categoryLeadersStmt = $pdo->query(
+        'SELECT c.id AS category_id, c.name AS category_name, c.gender,
+                con.id AS contestant_id, con.name AS contestant_name, con.gender AS contestant_gender, con.photo,
+                AVG(v.score) AS avg_score
+         FROM categories c
+         JOIN votes v ON v.category_id = c.id
+         JOIN contestants con ON con.id = v.contestant_id
+            AND (c.gender = con.gender OR c.gender = "all")
+         GROUP BY c.id, con.id
+         ORDER BY c.id, con.gender, avg_score DESC'
+    );
+    $categoryScoresData = $categoryLeadersStmt->fetchAll();
+    foreach ($categoryScoresData as $row) {
+        // For "all" categories, separate by contestant gender
+        $categoryId = $row['category_id'];
+        $contestantGender = $row['contestant_gender'] ?? 'male';
+        $categoryGender = $row['gender'] ?? '';
+        
+        if ($categoryGender === 'all') {
+            $key = $categoryId . '_' . $contestantGender;
+        } else {
+            $key = $categoryId;
+        }
+        
+        if (!isset($categoryLeaders[$key]) || $row['avg_score'] > $categoryLeaders[$key]['avg_score']) {
+            $categoryLeaders[$key] = $row;
+        }
+    }
+
+    // Get overall winners
+    $overallWinnersStmt = $pdo->query(
+        'SELECT con.id AS contestant_id, con.name AS contestant_name, con.gender, con.photo,
+                AVG(v.score) AS avg_score
+         FROM contestants con
+         JOIN votes v ON v.contestant_id = con.id
+         JOIN categories c ON c.id = v.category_id
+         WHERE c.gender = con.gender OR c.gender = "all"
+         GROUP BY con.id, con.gender
+         ORDER BY con.gender, avg_score DESC'
+    );
+    $overallScoresData = $overallWinnersStmt->fetchAll();
+    foreach ($overallScoresData as $row) {
+        $gender = $row['gender'] ?? '';
+        if ($gender === 'male' || $gender === 'female') {
+            if ($overallWinners[$gender] === null) {
+                $overallWinners[$gender] = $row;
+            }
+        }
+    }
+}
 ?>
 <section class="py-5">
     <div class="container">
@@ -374,10 +434,80 @@ foreach ($categories as $category) {
                     <div class="step-toast" id="stepToast" role="status" aria-live="polite"></div>
         <?php endif; ?>
 
+        <?php if ($hasVoted): ?>
+            <!-- Live Winners Section - Admin Only -->
+            <?php if ($isAdmin): ?>
+            <div class="card-dark p-4 mt-4 mb-4">
+                <div class="section-title mb-4">
+                    <span>Live Results</span>
+                    <h3 class="mb-0">Current Winners</h3>
+                </div>
+                <div class="alert alert-info mb-4">
+                    <strong>Live leaderboard:</strong> These are the current winners based on all votes cast so far. This updates in real-time as more people vote.
+                </div>
+
+                <!-- Overall Winners -->
+                <div class="row g-4 mb-5">
+                    <?php foreach (['male' => 'Mr UMU Rubaga', 'female' => 'Mrs UMU Rubaga'] as $gender => $title): ?>
+                        <?php $winner = $overallWinners[$gender]; ?>
+                        <div class="col-md-6">
+                            <div class="card-dark p-4 h-100" style="background: linear-gradient(135deg, rgba(255,193,7,.1) 0%, rgba(255,152,0,.1) 100%);">
+                                <div class="text-uppercase text-muted small mb-2">Overall Winner</div>
+                                <h5 class="mb-3"><?php echo h($title); ?></h5>
+                                <?php if ($winner): ?>
+                                    <div class="d-flex gap-3 align-items-center">
+                                        <img class="contestant-img" style="width: 100px; height: 100px; border-radius: 50%;" src="<?php echo h(asset_url($winner['photo'], $config)); ?>" alt="<?php echo h($winner['contestant_name']); ?>">
+                                        <div>
+                                            <h6 class="mb-1"><i class="bi bi-trophy-fill text-warning"></i> <?php echo h($winner['contestant_name']); ?></h6>
+                                            <small class="text-muted">Avg Score: <?php echo number_format((float) $winner['avg_score'], 2); ?>/5</small>
+                                        </div>
+                                    </div>
+                                <?php else: ?>
+                                    <p class="text-muted mb-0">No votes yet</p>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+
+                <!-- Category Winners -->
+                <h5 class="mb-3">Per Category Winners</h5>
+                <div class="row g-3">
+                    <?php foreach ($categoryLeaders as $leader): ?>
+                        <div class="col-md-6 col-lg-4">
+                            <div class="card-dark p-3 h-100">
+                                <small class="text-muted text-uppercase d-block mb-2">
+                                    <?php echo h($leader['category_name']); ?>
+                                    <?php if ($leader['gender'] === 'all'): ?>
+                                        <span style="display: inline-block; margin-left: 4px; font-size: 0.75rem;">
+                                            (<?php echo ucfirst($leader['contestant_gender'] ?? 'male'); ?>)
+                                        </span>
+                                    <?php endif; ?>
+                                </small>
+                                <div class="d-flex gap-3 align-items-center">
+                                    <img class="contestant-img" style="width: 80px; height: 80px;" src="<?php echo h(asset_url($leader['photo'], $config)); ?>" alt="<?php echo h($leader['contestant_name']); ?>">
+                                    <div class="flex-grow-1">
+                                        <div class="fw-bold small"><?php echo h($leader['contestant_name']); ?></div>
+                                        <small class="text-muted">Avg: <?php echo number_format((float) $leader['avg_score'], 2); ?>/5</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            <?php endif; ?>
+        <?php endif; ?>
+
         <?php if ($hasVoted && $submittedScores): ?>
             <div class="card-dark p-4 mt-4">
-                <h4 class="mb-3">Your submitted ratings</h4>
-                <p class="text-muted">Each category is required and averaged to determine winners.</p>
+                <div class="section-title mb-3">
+                    <span>Your Votes</span>
+                    <h3 class="mb-0">Your submitted ratings</h3>
+                </div>
+                <div class="alert alert-secondary mb-3">
+                    <strong>Your personal selections:</strong> Below are the exact ratings you gave to each contestant. Your votes are combined with everyone else's to calculate the winners.
+                </div>
                 <?php foreach ($categories as $category): ?>
                     <div class="mb-3">
                         <h5 class="mb-2"><?php echo h($category['name']); ?></h5>
@@ -392,6 +522,12 @@ foreach ($categories as $category) {
                                 <tbody>
                                     <?php foreach ($contestants as $contestant): ?>
                                         <?php
+                                        // Only show contestants that match the category gender
+                                        $categoryGender = $category['gender'] ?? 'all';
+                                        $contestantGender = $contestant['gender'] ?? 'male';
+                                        $shouldDisplay = ($categoryGender === 'all' || $categoryGender === $contestantGender);
+                                        if (!$shouldDisplay) continue;
+                                        
                                         $cell = $submittedScores[$category['id']][$contestant['id']] ?? null;
                                         $scoreValue = is_array($cell) ? $cell['score'] : (int) $cell;
                                         ?>

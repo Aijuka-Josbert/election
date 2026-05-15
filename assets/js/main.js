@@ -268,38 +268,49 @@ document.addEventListener("DOMContentLoaded", () => {
         setInterval(updateCountdown, 60000);
     }
 
-    const chartCanvas = document.getElementById("overallChart");
-    if (chartCanvas && window.Chart) {
-        const labels = JSON.parse(chartCanvas.dataset.labels || "[]");
-        const scores = JSON.parse(chartCanvas.dataset.scores || "[]");
-        if (labels.length) {
-            new Chart(chartCanvas, {
-                type: "bar",
-                data: {
-                    labels,
-                    datasets: [
-                        {
-                            label: "Average score",
-                            data: scores,
-                            backgroundColor: "rgba(201, 162, 39, 0.6)",
-                            borderColor: "rgba(201, 162, 39, 1)",
-                            borderWidth: 1,
-                        },
-                    ],
-                },
-                options: {
-                    plugins: { legend: { display: false } },
-                    scales: { y: { beginAtZero: true, max: 5 } },
-                },
-            });
+    const initRankingChart = (canvasId, color = "rgba(201, 162, 39, 0.6)") => {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || !window.Chart) {
+            return;
         }
-    }
+
+        const labels = JSON.parse(canvas.dataset.labels || "[]");
+        const scores = JSON.parse(canvas.dataset.scores || "[]");
+        if (!labels.length) {
+            return;
+        }
+
+        const borderColor = color.replace("0.6", "1").replace("0.5", "1");
+        new Chart(canvas, {
+            type: "bar",
+            data: {
+                labels,
+                datasets: [
+                    {
+                        label: "Average score",
+                        data: scores,
+                        backgroundColor: color,
+                        borderColor,
+                        borderWidth: 1,
+                    },
+                ],
+            },
+            options: {
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true, max: 5 } },
+            },
+        });
+    };
+
+    initRankingChart("overallChartMale", "rgba(201, 162, 39, 0.6)");
+    initRankingChart("overallChartFemale", "rgba(200, 16, 46, 0.5)");
 
     const categoryChart = document.getElementById("categoryChart");
     if (categoryChart && window.Chart) {
         const labels = JSON.parse(categoryChart.dataset.labels || "[]");
         const scores = JSON.parse(categoryChart.dataset.scores || "[]");
         if (labels.length) {
+            const isMobile = window.matchMedia("(max-width: 767.98px)").matches;
             new Chart(categoryChart, {
                 type: "bar",
                 data: {
@@ -315,9 +326,11 @@ document.addEventListener("DOMContentLoaded", () => {
                     ],
                 },
                 options: {
-                    indexAxis: "y",
+                    indexAxis: isMobile ? "x" : "y",
                     plugins: { legend: { display: false } },
-                    scales: { x: { beginAtZero: true, max: 5 } },
+                    scales: isMobile
+                        ? { y: { beginAtZero: true, max: 5 } }
+                        : { x: { beginAtZero: true, max: 5 } },
                 },
             });
         }

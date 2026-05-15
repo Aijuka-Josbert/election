@@ -35,8 +35,9 @@ $baseUrl = base_url($config);
 <nav class="navbar navbar-expand-lg navbar-dark glass-nav">
     <div class="container">
         <a class="navbar-brand" href="<?php echo h($baseUrl . '/index.php'); ?>">
+            <img class="brand-badge" src="<?php echo h(asset_url('assets/images/Untitled.jpeg', $config)); ?>" alt="UMU badge">
             <span class="brand-dot"></span>
-            UMU Varsity Ball
+            <span>UMU Varsity Ball</span>
         </a>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav">
             <span class="navbar-toggler-icon"></span>

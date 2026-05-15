@@ -26,29 +26,36 @@ if (!$canDownload) {
     exit;
 }
 
-$overallScores = $pdo->query(
-    'SELECT con.id AS contestant_id, con.name AS contestant_name, con.gender,
-            AVG(v.score) AS avg_score
-     FROM contestants con
-     JOIN votes v ON v.contestant_id = con.id
-     GROUP BY con.id
-     ORDER BY avg_score DESC'
-)->fetchAll();
-
-$overallWinners = ['male' => null, 'female' => null];
-foreach ($overallScores as $row) {
-    if ($row['gender'] === 'male' && $overallWinners['male'] === null) {
-        $overallWinners['male'] = $row;
-    }
-    if ($row['gender'] === 'female' && $overallWinners['female'] === null) {
-        $overallWinners['female'] = $row;
-    }
+$certificateGender = strtolower(trim((string) ($_GET['gender'] ?? '')));
+if (!in_array($certificateGender, ['male', 'female'], true)) {
+    http_response_code(400);
+    echo 'Select a valid certificate gender: male or female.';
+    exit;
 }
 
-$femaleName = $overallWinners['female']['contestant_name'] ?? 'TBD';
-$maleName = $overallWinners['male']['contestant_name'] ?? 'TBD';
+$winnerStmt = $pdo->prepare(
+    'SELECT con.name AS contestant_name, AVG(v.score) AS avg_score
+     FROM contestants con
+     JOIN votes v ON v.contestant_id = con.id
+     JOIN categories c ON c.id = v.category_id
+     WHERE con.gender = ?
+       AND (c.gender = con.gender OR c.gender = "all")
+     GROUP BY con.id
+     ORDER BY avg_score DESC
+     LIMIT 1'
+);
+$winnerStmt->execute([$certificateGender]);
+$winner = $winnerStmt->fetch();
+
+$winnerName = $winner['contestant_name'] ?? 'TBD';
+$winnerAverage = isset($winner['avg_score']) ? number_format((float) $winner['avg_score'], 2) : 'N/A';
 $eventName = $config['app']['event_name'] ?? 'UMU Rubaga Varsity Ball';
 $eventDate = $config['app']['event_date'] ?? '';
+
+$titleLabel = $certificateGender === 'male' ? 'Mr UMU Rubaga' : 'Mrs UMU Rubaga';
+$certificateHeading = $certificateGender === 'male'
+    ? 'Certificate of Appreciation - Male Winner'
+    : 'Certificate of Appreciation - Female Winner';
 
 function pdf_escape(string $value): string
 {
@@ -57,22 +64,20 @@ function pdf_escape(string $value): string
 
 $issuedOn = date('Y-m-d');
 $lines = [
-    ['text' => 'Certificate of Achievement', 'size' => 28, 'x' => 72, 'y' => 780, 'font' => 'F2'],
-    ['text' => 'This certificate recognizes the overall winners of the', 'size' => 12, 'x' => 72, 'y' => 745],
-    ['text' => 'UMU Rubaga Varsity Ball', 'size' => 18, 'x' => 72, 'y' => 720],
+    ['text' => $certificateHeading, 'size' => 24, 'x' => 72, 'y' => 780, 'font' => 'F2'],
+    ['text' => 'This certificate recognizes the top winner of the', 'size' => 12, 'x' => 72, 'y' => 745],
+    ['text' => $eventName, 'size' => 18, 'x' => 72, 'y' => 720],
     ['text' => '', 'size' => 10, 'x' => 72, 'y' => 690],
-    ['text' => 'BEST MAN - UMU Rubaga', 'size' => 12, 'x' => 72, 'y' => 670],
-    ['text' => $maleName, 'size' => 16, 'x' => 72, 'y' => 650],
-    ['text' => '', 'size' => 8, 'x' => 72, 'y' => 630],
-    ['text' => 'BEST WOMAN - UMU Rubaga', 'size' => 12, 'x' => 72, 'y' => 610],
-    ['text' => $femaleName, 'size' => 16, 'x' => 72, 'y' => 590],
+    ['text' => strtoupper($titleLabel) . ' WINNER', 'size' => 12, 'x' => 72, 'y' => 670],
+    ['text' => $winnerName, 'size' => 22, 'x' => 72, 'y' => 640, 'font' => 'F2'],
+    ['text' => 'Average score: ' . $winnerAverage, 'size' => 12, 'x' => 72, 'y' => 612],
 ];
 
 if ($eventDate !== '') {
     $lines[] = ['text' => 'Event date: ' . $eventDate, 'size' => 10, 'x' => 72, 'y' => 560];
 }
 
-$lines[] = ['text' => 'Issued on ' . $issuedOn, 'size' => 10, 'x' => 72, 'y' => 540];
+$lines[] = ['text' => 'Issued on ' . $issuedOn, 'size' => 10, 'x' => 72, 'y' => 560];
 
 $content = "";
 foreach ($lines as $line) {
@@ -113,6 +118,6 @@ header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
 header('Expires: 0');
 header('Content-Type: application/pdf');
-header('Content-Disposition: attachment; filename="umu_vote_winners_certificate_' . date('Ymd_His') . '.pdf"');
+header('Content-Disposition: attachment; filename="umu_vote_' . $certificateGender . '_winner_certificate_' . date('Ymd_His') . '.pdf"');
 header('Content-Length: ' . strlen($pdf));
 echo $pdf;

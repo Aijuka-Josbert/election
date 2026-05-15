@@ -13,6 +13,7 @@ $categoryScores = $pdo->query(
      FROM categories c
      JOIN votes v ON v.category_id = c.id
      JOIN contestants con ON con.id = v.contestant_id
+    AND (c.gender = con.gender OR c.gender = "all")
      GROUP BY c.id, con.id
      ORDER BY c.id, avg_score DESC'
 )->fetchAll();
@@ -30,8 +31,10 @@ $overallScores = $pdo->query(
             AVG(v.score) AS avg_score
      FROM contestants con
      JOIN votes v ON v.contestant_id = con.id
-     GROUP BY con.id
-     ORDER BY avg_score DESC'
+    JOIN categories c ON c.id = v.category_id
+    WHERE c.gender = con.gender OR c.gender = "all"
+    GROUP BY con.id, con.gender
+    ORDER BY con.gender, avg_score DESC'
 )->fetchAll();
 
 require_once __DIR__ . '/partials/header.php';

@@ -12,6 +12,7 @@ require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/helpers.php';
 
 $isAdmin = is_logged_in() && is_admin($config);
+$resultsPublic = (bool) ($config['app']['results_public'] ?? false);
 $tzName = $config['app']['timezone'] ?? 'UTC';
 $tz = new DateTimeZone($tzName);
 $now = new DateTime('now', $tz);
@@ -22,34 +23,51 @@ $startTime = $startValue !== '' ? new DateTime($startValue, $tz) : null;
 $endTime = $endValue !== '' ? new DateTime($endValue, $tz) : null;
 $hasStarted = $startTime ? $now >= $startTime : true;
 $hasEnded = $endTime ? $now > $endTime : false;
-$showResults = $isAdmin;
+// Show results to admins or if results are made public via settings
+$showResults = $isAdmin || $resultsPublic;
 
 $categoryScores = [];
 $categoryLeaders = [];
 $overallScores = [];
+$overallScoresByGender = ['male' => [], 'female' => []];
 $overallWinners = ['male' => null, 'female' => null];
-$chartLabels = [];
-$chartScores = [];
+$maleChartLabels = [];
+$maleChartScores = [];
+$femaleChartLabels = [];
+$femaleChartScores = [];
 $categoryLabels = [];
 $categoryAverages = [];
 
 if ($showResults) {
-    // Category-level averages and top contestants per category
+    // Category-level averages and top contestants per category, separated by gender
     $categoryScores = $pdo->query(
         'SELECT c.id AS category_id, c.name AS category_name, c.gender,
-                con.id AS contestant_id, con.name AS contestant_name, con.photo,
+                con.id AS contestant_id, con.name AS contestant_name, con.gender AS contestant_gender, con.photo,
                 AVG(v.score) AS avg_score
          FROM categories c
          JOIN votes v ON v.category_id = c.id
          JOIN contestants con ON con.id = v.contestant_id
+            AND (c.gender = con.gender OR c.gender = "all")
          GROUP BY c.id, con.id
-         ORDER BY c.id, avg_score DESC'
+         ORDER BY c.id, con.gender, avg_score DESC'
     )->fetchAll();
 
     foreach ($categoryScores as $row) {
+        // Create unique key: for "all" categories, separate by contestant gender
         $categoryId = $row['category_id'];
-        if (!isset($categoryLeaders[$categoryId]) || $row['avg_score'] > $categoryLeaders[$categoryId]['avg_score']) {
-            $categoryLeaders[$categoryId] = $row;
+        $contestantGender = $row['contestant_gender'] ?? 'male';
+        $categoryGender = $row['gender'] ?? '';
+        
+        if ($categoryGender === 'all') {
+            // For "all" categories, create separate leaders per gender
+            $key = $categoryId . '_' . $contestantGender;
+        } else {
+            // For gender-specific categories, just use category ID
+            $key = $categoryId;
+        }
+        
+        if (!isset($categoryLeaders[$key]) || $row['avg_score'] > $categoryLeaders[$key]['avg_score']) {
+            $categoryLeaders[$key] = $row;
         }
     }
 
@@ -59,36 +77,59 @@ if ($showResults) {
                 AVG(v.score) AS avg_score
          FROM contestants con
          JOIN votes v ON v.contestant_id = con.id
-         GROUP BY con.id
-         ORDER BY avg_score DESC'
+         JOIN categories c ON c.id = v.category_id
+         WHERE c.gender = con.gender OR c.gender = "all"
+         GROUP BY con.id, con.gender
+         ORDER BY con.gender, avg_score DESC'
     )->fetchAll();
 
     foreach ($overallScores as $row) {
-        if ($row['gender'] === 'male' && $overallWinners['male'] === null) {
-            $overallWinners['male'] = $row;
+        $gender = $row['gender'] ?? '';
+        if (!isset($overallScoresByGender[$gender])) {
+            continue;
         }
-        if ($row['gender'] === 'female' && $overallWinners['female'] === null) {
-            $overallWinners['female'] = $row;
+
+        $overallScoresByGender[$gender][] = $row;
+        if ($overallWinners[$gender] === null) {
+            $overallWinners[$gender] = $row;
         }
     }
 
-    // Prepare top-5 labels and scores for a chart
-    foreach (array_slice($overallScores, 0, 5) as $row) {
-        $chartLabels[] = $row['contestant_name'];
-        $chartScores[] = round((float) $row['avg_score'], 2);
+    // Prepare top-5 labels and scores per gender.
+    foreach (array_slice($overallScoresByGender['male'], 0, 5) as $row) {
+        $maleChartLabels[] = $row['contestant_name'];
+        $maleChartScores[] = round((float) $row['avg_score'], 2);
     }
 
-    // Category-wise average scores for charting
+    foreach (array_slice($overallScoresByGender['female'], 0, 5) as $row) {
+        $femaleChartLabels[] = $row['contestant_name'];
+        $femaleChartScores[] = round((float) $row['avg_score'], 2);
+    }
+
+    // Category-wise average scores for charting, separated by gender for "all" categories
     $categoryAvgRows = $pdo->query(
-        'SELECT c.name AS category_name, AVG(v.score) AS avg_score
+        'SELECT c.id AS category_id, c.name AS category_name, c.gender, con.gender AS contestant_gender, AVG(v.score) AS avg_score
          FROM categories c
          JOIN votes v ON v.category_id = c.id
-         GROUP BY c.id
-         ORDER BY c.id'
+         JOIN contestants con ON con.id = v.contestant_id
+         WHERE c.gender = con.gender OR c.gender = "all"
+         GROUP BY c.id, con.gender
+         ORDER BY c.gender, c.id, con.gender'
     )->fetchAll();
 
     foreach ($categoryAvgRows as $row) {
-        $categoryLabels[] = $row['category_name'];
+        $categoryGender = $row['gender'] ?? '';
+        $contestantGender = $row['contestant_gender'] ?? 'male';
+        
+        if ($categoryGender === 'all') {
+            // For "all" categories, separate by gender
+            $label = $row['category_name'] . ' (' . ucfirst($contestantGender) . ')';
+        } else {
+            // For gender-specific categories
+            $label = ucfirst($categoryGender) . ' - ' . $row['category_name'];
+        }
+        
+        $categoryLabels[] = $label;
         $categoryAverages[] = round((float) $row['avg_score'], 2);
     }
 }
@@ -101,7 +142,7 @@ if ($showResults) {
         </div>
 
         <?php if (!$showResults): ?>
-            <div class="alert alert-warning">Results are available to admins only.</div>
+            <div class="alert alert-warning">Results are available to admins only (or when made public via settings).</div>
         <?php elseif (!$overallScores): ?>
             <div class="alert alert-warning">No votes yet. Results will appear once voting starts.</div>
         <?php else: ?>
@@ -116,7 +157,14 @@ if ($showResults) {
                         <div class="result-slide">
                             <div class="card-dark p-4 h-100">
                                 <div class="text-uppercase text-muted small">Category winner</div>
-                                <h4 class="mt-2 mb-3"><?php echo h($leader['category_name']); ?></h4>
+                                <h4 class="mt-2 mb-3">
+                                    <?php echo h($leader['category_name']); ?>
+                                    <?php if ($leader['gender'] === 'all'): ?>
+                                        <small class="d-block" style="font-size: 0.75rem; margin-top: 4px;">
+                                            (<?php echo ucfirst($leader['contestant_gender'] ?? 'male'); ?>)
+                                        </small>
+                                    <?php endif; ?>
+                                </h4>
                                 <div class="d-flex gap-3 align-items-center">
                                     <img class="contestant-img" style="width: 120px; height: 120px;" src="<?php echo h(asset_url($leader['photo'], $config)); ?>" alt="<?php echo h($leader['contestant_name']); ?>">
                                     <div>
@@ -157,7 +205,14 @@ if ($showResults) {
                 <?php foreach ($categoryLeaders as $leader): ?>
                     <div class="col-md-6 col-lg-4">
                         <div class="card-dark p-3 h-100">
-                            <h5 class="mb-2"><?php echo h($leader['category_name']); ?></h5>
+                            <h5 class="mb-2">
+                                <?php echo h($leader['category_name']); ?>
+                                <?php if ($leader['gender'] === 'all'): ?>
+                                    <small class="d-block text-muted" style="font-size: 0.85rem; font-weight: normal;">
+                                        (<?php echo ucfirst($leader['contestant_gender'] ?? 'male'); ?>)
+                                    </small>
+                                <?php endif; ?>
+                            </h5>
                             <div class="d-flex gap-3 align-items-center">
                                 <img class="contestant-img" style="width: 90px; height: 90px;" src="<?php echo h(asset_url($leader['photo'], $config)); ?>" alt="<?php echo h($leader['contestant_name']); ?>">
                                 <div>
@@ -170,14 +225,29 @@ if ($showResults) {
                 <?php endforeach; ?>
             </div>
 
-            <div class="card-dark p-4 mb-5">
-                <h4 class="mb-3">Top contestants</h4>
-                <canvas
-                    id="overallChart"
-                    height="140"
-                    data-labels='<?php echo json_encode($chartLabels); ?>'
-                    data-scores='<?php echo json_encode($chartScores); ?>'
-                ></canvas>
+            <div class="row g-4 mb-5">
+                <div class="col-lg-6">
+                    <div class="card-dark p-4 h-100">
+                        <h4 class="mb-3">Top male contestants</h4>
+                        <canvas
+                            id="overallChartMale"
+                            height="180"
+                            data-labels='<?php echo json_encode($maleChartLabels); ?>'
+                            data-scores='<?php echo json_encode($maleChartScores); ?>'
+                        ></canvas>
+                    </div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="card-dark p-4 h-100">
+                        <h4 class="mb-3">Top female contestants</h4>
+                        <canvas
+                            id="overallChartFemale"
+                            height="180"
+                            data-labels='<?php echo json_encode($femaleChartLabels); ?>'
+                            data-scores='<?php echo json_encode($femaleChartScores); ?>'
+                        ></canvas>
+                    </div>
+                </div>
             </div>
 
             <div class="card-dark p-4 mb-5">
@@ -199,7 +269,10 @@ if ($showResults) {
                     ?>
                     Congratulations to Mr UMU Rubaga: <?php echo h($maleWinner); ?>, and Mrs UMU Rubaga: <?php echo h($femaleWinner); ?>.
                 </p>
-                <a class="btn btn-outline-light" href="certificate.php">Download certificate</a>
+                <div class="d-flex flex-wrap gap-2">
+                    <a class="btn btn-outline-light" href="certificate.php?gender=male">Download Mr certificate</a>
+                    <a class="btn btn-outline-light" href="certificate.php?gender=female">Download Mrs certificate</a>
+                </div>
             </div>
         <?php endif; ?>
     </div>

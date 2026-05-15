@@ -52,8 +52,19 @@ h1, h2, h3, h4 {
 }
 
 .navbar-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
     font-size: 1rem;
     letter-spacing: 0.3px;
+}
+
+.brand-badge {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid rgba(255, 255, 255, 0.4);
 }
 
 .auth-action {
@@ -580,6 +591,46 @@ h1, h2, h3, h4 {
     background: var(--umu-gold);
 }
 
+canvas {
+    max-width: 100%;
+}
+
+@media (max-width: 991.98px) {
+    .navbar .container {
+        row-gap: 10px;
+    }
+
+    .auth-action {
+        margin-left: auto;
+    }
+}
+
+@media (max-width: 767.98px) {
+    .brand-badge {
+        width: 24px;
+        height: 24px;
+    }
+
+    .navbar-brand {
+        font-size: 0.94rem;
+    }
+
+    .result-slide .d-flex {
+        flex-direction: column;
+        align-items: flex-start !important;
+    }
+
+    .result-slide .contestant-img {
+        width: 96px !important;
+        height: 96px !important;
+    }
+
+    .slider-btn {
+        width: 34px;
+        height: 34px;
+    }
+}
+
 @media print {
     .glass-nav,
     .admin-sidebar,
@@ -709,8 +760,8 @@ h1, h2, h3, h4 {
     #nextCategoryBtn,
     #submitVoteBtn {
         cursor: pointer;
-        user-select: none;
         -webkit-user-select: none;
+        user-select: none;
         -webkit-touch-callout: none;
         -webkit-tap-highlight-color: transparent;
     }

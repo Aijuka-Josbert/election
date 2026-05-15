@@ -18,8 +18,10 @@ $overallScores = $pdo->query(
             AVG(v.score) AS avg_score
      FROM contestants con
      JOIN votes v ON v.contestant_id = con.id
-     GROUP BY con.id
-     ORDER BY avg_score DESC'
+    JOIN categories c ON c.id = v.category_id
+    WHERE c.gender = con.gender OR c.gender = "all"
+    GROUP BY con.id, con.gender
+    ORDER BY con.gender, avg_score DESC'
 )->fetchAll();
 
 $overallWinners = ['male' => null, 'female' => null];
