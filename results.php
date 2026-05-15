@@ -37,8 +37,19 @@ $femaleChartLabels = [];
 $femaleChartScores = [];
 $categoryLabels = [];
 $categoryAverages = [];
+$adminTotals = ['total_votes' => 0, 'total_voters' => 0];
 
 if ($showResults) {
+    if ($isAdmin) {
+        $adminTotalsStmt = $pdo->query(
+            'SELECT COUNT(*) AS total_votes, COUNT(DISTINCT user_id) AS total_voters
+             FROM votes'
+        );
+        $adminTotalsRow = $adminTotalsStmt->fetch();
+        $adminTotals['total_votes'] = (int) ($adminTotalsRow['total_votes'] ?? 0);
+        $adminTotals['total_voters'] = (int) ($adminTotalsRow['total_voters'] ?? 0);
+    }
+
     // Category-level averages and top contestants per category, separated by gender
     $categoryScores = $pdo->query(
         'SELECT c.id AS category_id, c.name AS category_name, c.gender,
@@ -150,6 +161,23 @@ if ($showResults) {
                 <div class="text-muted">Admin view: full results with live totals.</div>
                 <button class="btn btn-outline-light" type="button" id="printResultsBtn">Print results</button>
             </div>
+
+            <?php if ($isAdmin): ?>
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6">
+                        <div class="card-dark p-3 h-100">
+                            <div class="text-uppercase text-muted small mb-1">Total vote entries</div>
+                            <div class="h4 mb-0"><?php echo number_format($adminTotals['total_votes']); ?></div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card-dark p-3 h-100">
+                            <div class="text-uppercase text-muted small mb-1">Total voters</div>
+                            <div class="h4 mb-0"><?php echo number_format($adminTotals['total_voters']); ?></div>
+                        </div>
+                    </div>
+                </div>
+            <?php endif; ?>
 
             <div class="results-slider" data-autoplay="true">
                 <div class="results-track">
