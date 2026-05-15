@@ -75,26 +75,16 @@ if ($votingOpen && ($startTime || $endTime)) {
 
 // Load categories and contestants (limited by config)
 $limit = (int) ($config['app']['category_limit'] ?? 10);
-$maleCategoriesStmt = $pdo->prepare('SELECT id, name, gender FROM categories WHERE gender = ? ORDER BY id LIMIT ?');
-$maleCategoriesStmt->bindValue(1, 'male', PDO::PARAM_STR);
-$maleCategoriesStmt->bindValue(2, $limit, PDO::PARAM_INT);
-$maleCategoriesStmt->execute();
-$femaleCategoriesStmt = $pdo->prepare('SELECT id, name, gender FROM categories WHERE gender = ? ORDER BY id LIMIT ?');
-$femaleCategoriesStmt->bindValue(1, 'female', PDO::PARAM_STR);
-$femaleCategoriesStmt->bindValue(2, $limit, PDO::PARAM_INT);
-$femaleCategoriesStmt->execute();
-$categories = array_merge($maleCategoriesStmt->fetchAll(), $femaleCategoriesStmt->fetchAll());
+$categoriesStmt = $pdo->prepare('SELECT id, name, gender FROM categories ORDER BY id LIMIT ?');
+$categoriesStmt->bindValue(1, $limit, PDO::PARAM_INT);
+$categoriesStmt->execute();
+$categories = $categoriesStmt->fetchAll();
+
 $contestants = $pdo->query('SELECT id, name, gender, photo, bio FROM contestants ORDER BY gender, name')->fetchAll();
 
-// Group data by gender for rendering the two tracks (male / female)
-$categoriesByGender = ['male' => [], 'female' => []];
-foreach ($categories as $category) {
-    $genderKey = $category['gender'] ?? 'male';
-    if (!isset($categoriesByGender[$genderKey])) {
-        $categoriesByGender[$genderKey] = [];
-    }
-    $categoriesByGender[$genderKey][] = $category;
-}
+// Prepare categories steps (each category appears once). Categories with gender 'all' remain a single category.
+// The UI will display both male and female contestants for each category as intended.
+$categorySteps = $categories;
 
 $contestantsByGender = ['male' => [], 'female' => []];
 foreach ($contestants as $contestant) {
@@ -133,19 +123,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$hasVoted && $votingOpen) {
         $errors[] = 'Voting is not ready. Please check back later.';
     } else {
         foreach ($categories as $category) {
-            foreach ($contestantsByGender as $contestantGroup) {
-                foreach ($contestantGroup as $contestant) {
-                $score = $_POST['scores'][$category['id']][$contestant['id']] ?? null;
-                if ($score === null || !is_numeric($score)) {
-                    $errors[] = 'Please rate every contestant in all categories.';
-                    break 2;
-                }
+            $categoryGender = $category['gender'] ?? 'all';
+            // Determine which contestant groups to validate based on category gender
+            $groupsToValidate = [];
+            if ($categoryGender === 'all') {
+                $groupsToValidate = ['male', 'female'];
+            } else {
+                $groupsToValidate = [$categoryGender];
+            }
+            
+            foreach ($groupsToValidate as $groupKey) {
+                foreach ($contestantsByGender[$groupKey] as $contestant) {
+                    $score = $_POST['scores'][$category['id']][$contestant['id']] ?? null;
+                    if ($score === null || !is_numeric($score)) {
+                        $errors[] = 'Please rate every contestant in all categories.';
+                        break 3;
+                    }
 
-                $scoreValue = (int) $score;
-                if ($scoreValue < 1 || $scoreValue > 5) {
-                    $errors[] = 'Scores must be between 1 and 5.';
-                    break 2;
-                }
+                    $scoreValue = (int) $score;
+                    if ($scoreValue < 1 || $scoreValue > 5) {
+                        $errors[] = 'Scores must be between 1 and 5.';
+                        break 3;
+                    }
                 }
             }
         }
@@ -157,8 +156,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$hasVoted && $votingOpen) {
         $insert = $pdo->prepare('INSERT INTO votes (user_id, contestant_id, category_id, score) VALUES (?, ?, ?, ?)');
 
         foreach ($categories as $category) {
-            foreach ($contestantsByGender as $contestantGroup) {
-                foreach ($contestantGroup as $contestant) {
+            $categoryGender = $category['gender'] ?? 'all';
+            // Determine which contestant groups to insert votes for based on category gender
+            $groupsToInsert = [];
+            if ($categoryGender === 'all') {
+                $groupsToInsert = ['male', 'female'];
+            } else {
+                $groupsToInsert = [$categoryGender];
+            }
+            
+            foreach ($groupsToInsert as $groupKey) {
+                foreach ($contestantsByGender[$groupKey] as $contestant) {
                     $scoreValue = (int) $_POST['scores'][$category['id']][$contestant['id']];
                     $insert->execute([$userId, $contestant['id'], $category['id'], $scoreValue]);
                 }
@@ -230,6 +238,36 @@ foreach ($categories as $category) {
         <?php if (!$categories || !$contestants): ?>
             <div class="alert alert-warning">No categories or contestants have been added yet.</div>
         <?php elseif (!$hasVoted && $votingOpen): ?>
+            <!-- Category Progress Tracker -->
+            <div class="category-progress-section mb-4">
+                <div class="progress-header mb-3">
+                    <h4 class="mb-1">Voting Progress</h4>
+                    <p class="text-muted mb-0">
+                        <span id="categoryCounter">0</span> of <span id="totalCategories"><?php echo (int) count($categories); ?></span> categories completed
+                    </p>
+                </div>
+                
+                <div class="category-progress-bar" id="categoryProgressContainer">
+                    <?php foreach ($categories as $index => $category): ?>
+                        <div class="progress-step" 
+                             data-step="<?php echo (int) $index; ?>" 
+                             data-category-id="<?php echo (int) $category['id']; ?>"
+                             data-category-name="<?php echo h($category['name']); ?>">
+                            <div class="step-circle">
+                                <span class="step-number"><?php echo (int) $index + 1; ?></span>
+                                <svg class="step-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                    <path d="M20 6L9 17l-5-5"></path>
+                                </svg>
+                            </div>
+                            <div class="step-label">
+                                <small class="step-category-name"><?php echo h($category['name']); ?></small>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            
+            <!-- Overall Progress Indicator -->
             <div class="card-dark p-4 mb-4">
                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
                     <div>
@@ -243,23 +281,38 @@ foreach ($categories as $category) {
                 </div>
             </div>
                     <?php
-                    $categorySteps = array_merge($categoriesByGender['male'], $categoriesByGender['female']);
                     $stepTotal = count($categorySteps);
                     ?>
-                    <form method="post" id="voteForm" class="vote-form" data-total="<?php echo (int) $totalRatings; ?>" data-steps="<?php echo (int) $stepTotal; ?>">
+                    <form method="post" id="voteForm" class="vote-form" data-total="<?php echo (int) $totalRatings; ?>" data-steps="<?php echo (int) $stepTotal; ?>" data-categories="<?php echo htmlspecialchars(json_encode(array_map(fn($c) => ['id' => $c['id'], 'name' => $c['name']], $categories)), ENT_QUOTES, 'UTF-8'); ?>">
                         <?php foreach ($categorySteps as $index => $category): ?>
-                            <div class="vote-step mb-5" data-step="<?php echo (int) $index; ?>" data-gender="<?php echo h($category['gender']); ?>" data-category="<?php echo h($category['name']); ?>" style="<?php echo $index === 0 ? '' : 'display:none;'; ?>">
+                            <div class="vote-step mb-5" data-step="<?php echo (int) $index; ?>" data-category-id="<?php echo (int) $category['id']; ?>" data-gender="<?php echo h($category['gender']); ?>" data-category="<?php echo h($category['name']); ?>" style="<?php echo $index === 0 ? '' : 'display:none;'; ?>">
                                 <div class="vote-group mb-4">
                                     <div class="d-flex justify-content-between align-items-center mb-4">
                                         <div>
                                             <h3 class="mb-2"><?php echo h($category['name']); ?></h3>
-                                            <small class="text-muted text-uppercase">Rate both male &amp; female</small>
+                                            <small class="text-muted text-uppercase">
+                                                <?php 
+                                                $categoryGender = $category['gender'] ?? 'all';
+                                                if ($categoryGender === 'all') {
+                                                    echo 'Rate both male &amp; female';
+                                                } elseif ($categoryGender === 'male') {
+                                                    echo 'Rate Mr UMU Rubaga';
+                                                } else {
+                                                    echo 'Rate Mrs UMU Rubaga';
+                                                }
+                                                ?>
+                                            </small>
                                         </div>
                                         <span class="badge badge-gold">Rate 1 - 5</span>
                                     </div>
 
                                     <div class="row g-4">
                                         <?php foreach ($contestantSections as $section): ?>
+                                            <?php 
+                                            $categoryGender = $category['gender'] ?? 'all';
+                                            $shouldShow = ($categoryGender === 'all' || $categoryGender === $section['key']);
+                                            if (!$shouldShow) continue;
+                                            ?>
                                             <div class="col-12 col-md-6">
                                                 <div class="gender-section-header mb-3">
                                                     <h5 class="mb-0"><?php echo h($section['label']); ?></h5>

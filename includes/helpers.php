@@ -78,12 +78,20 @@ function asset_url_versioned(string $path, array $config): string
 function absolute_base_url(array $config): string
 {
     $basePath = base_url($config);
+    
+    // If base_url is explicitly set in config, use it
+    if (!empty($config['app']['base_url'])) {
+        return rtrim($config['app']['base_url'], '/');
+    }
+    
     $host = $_SERVER['HTTP_HOST'] ?? '';
     if ($host === '') {
         return $basePath;
     }
 
-    $isHttps = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+    // Force HTTPS for live server
+    $isLive = strpos($host, 'umuelections.fwh.is') !== false;
+    $isHttps = $isLive || (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
     $scheme = $isHttps ? 'https' : 'http';
 
     return $scheme . '://' . $host . $basePath;

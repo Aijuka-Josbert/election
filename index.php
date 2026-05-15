@@ -1,4 +1,4 @@
-@<?php
+<?php
 /*
  * index.php
  * Public landing page — shows a hero, event details and a preview of recent

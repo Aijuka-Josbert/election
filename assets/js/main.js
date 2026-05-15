@@ -2,6 +2,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const voteForm = document.getElementById("voteForm");
     const progressBar = document.getElementById("voteProgressBar");
     const progressText = document.getElementById("voteProgressText");
+    const categoryCounterEl = document.getElementById("categoryCounter");
+    const totalCategoriesEl = document.getElementById("totalCategories");
+    const categoryProgressContainer = document.getElementById("categoryProgressContainer");
 
     const updateVoteProgress = () => {
         if (!voteForm || !progressBar || !progressText) {
@@ -18,6 +21,50 @@ document.addEventListener("DOMContentLoaded", () => {
         const percent = total ? Math.round((filled / total) * 100) : 0;
         progressBar.style.width = `${percent}%`;
         progressText.textContent = `${percent}% completed`;
+        
+        // Update category completion counter
+        updateCategoryProgress();
+    };
+
+    const updateCategoryProgress = () => {
+        if (!voteForm || !categoryProgressContainer) {
+            return;
+        }
+
+        const voteSteps = voteForm.querySelectorAll(".vote-step");
+        let completedCount = 0;
+
+        voteSteps.forEach((stepEl) => {
+            const stepIndex = parseInt(stepEl.dataset.step, 10);
+            const categoryId = stepEl.dataset.categoryId;
+            const progressStep = categoryProgressContainer.querySelector(`[data-step="${stepIndex}"]`);
+
+            if (!progressStep) {
+                return;
+            }
+
+            const ratingGroups = stepEl.querySelectorAll(".star-rating");
+            let stepComplete = true;
+
+            for (const group of ratingGroups) {
+                if (!group.querySelector("input.star-input:checked")) {
+                    stepComplete = false;
+                    break;
+                }
+            }
+
+            if (stepComplete) {
+                completedCount += 1;
+                progressStep.classList.add("completed");
+                progressStep.classList.remove("active");
+            } else {
+                progressStep.classList.remove("completed");
+            }
+        });
+
+        if (categoryCounterEl) {
+            categoryCounterEl.textContent = completedCount;
+        }
     };
 
     updateVoteProgress();
@@ -59,7 +106,15 @@ document.addEventListener("DOMContentLoaded", () => {
         const activeStep = voteSteps[currentStep];
         const categoryName = activeStep?.dataset?.category || "";
         const gender = activeStep?.dataset?.gender || "";
-        const genderLabel = gender === "female" ? "Mrs UMU Rubaga" : "Mr UMU Rubaga";
+        
+        let genderLabel;
+        if (gender === "all") {
+            genderLabel = "Mr & Mrs UMU Rubaga";
+        } else if (gender === "female") {
+            genderLabel = "Mrs UMU Rubaga";
+        } else {
+            genderLabel = "Mr UMU Rubaga";
+        }
 
         if (currentCategoryTitle) {
             currentCategoryTitle.textContent = `Step ${currentStep + 1} of ${voteSteps.length}`;
@@ -75,6 +130,18 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         if (submitVoteBtn) {
             submitVoteBtn.style.display = currentStep === voteSteps.length - 1 ? "inline-block" : "none";
+        }
+
+        // Update progress bar active step indicator
+        if (categoryProgressContainer) {
+            const progressSteps = categoryProgressContainer.querySelectorAll(".progress-step");
+            progressSteps.forEach((step) => {
+                step.classList.remove("active");
+                const stepIndex = parseInt(step.dataset.step, 10);
+                if (stepIndex === currentStep) {
+                    step.classList.add("active");
+                }
+            });
         }
 
         if (activeStep) {

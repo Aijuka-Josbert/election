@@ -26,7 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = 'Category name is required.';
         }
 
-        if (!in_array($gender, ['male', 'female'], true)) {
+        if (!in_array($gender, ['male', 'female', 'all'], true)) {
             $errors[] = 'Select a valid gender.';
         }
 
@@ -69,6 +69,7 @@ require_once __DIR__ . '/partials/header.php';
                         <option value="">Select gender</option>
                         <option value="male">Male</option>
                         <option value="female">Female</option>
+                        <option value="all">All (for categories that apply to all contestants)</option>
                     </select>
                 </div>
                 <button class="btn btn-primary" type="submit">Save Category</button>
