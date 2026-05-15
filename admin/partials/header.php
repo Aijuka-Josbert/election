@@ -27,3 +27,6 @@ $baseUrl = base_url($config);
 <div class="admin-layout">
     <?php require __DIR__ . '/sidebar.php'; ?>
     <div class="admin-content">
+        <div class="admin-topbar d-flex justify-content-end align-items-center mb-3">
+            <a class="btn btn-danger btn-sm nav-logout" href="<?php echo h($baseUrl . '/logout.php'); ?>"><i class="bi bi-box-arrow-right"></i> Logout</a>
+        </div>

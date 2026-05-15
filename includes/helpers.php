@@ -198,3 +198,64 @@ function save_app_settings(PDO $pdo, array $settings): bool
 
     return true;
 }
+
+function get_voting_window(array $config): array
+{
+    $tzName = $config['app']['timezone'] ?? 'UTC';
+    $tz = new DateTimeZone($tzName);
+    $startStr = $config['app']['voting_start'] ?? '';
+    $endStr = $config['app']['voting_end'] ?? '';
+
+    $start = $startStr !== '' ? new DateTime($startStr, $tz) : null;
+    $end = $endStr !== '' ? new DateTime($endStr, $tz) : null;
+
+    if ($start && $end && $end <= $start) {
+        $end = (clone $end)->modify('+1 day');
+    }
+
+    return [
+        'start' => $start,
+        'end' => $end,
+        'enabled' => !empty($config['app']['voting_open']),
+        'timezone' => $tzName,
+    ];
+}
+
+function is_voting_open_config(array $config): bool
+{
+    $window = get_voting_window($config);
+    if (!$window['enabled']) {
+        return false;
+    }
+
+    $tz = new DateTimeZone($window['timezone']);
+    $now = new DateTime('now', $tz);
+
+    $start = $window['start'];
+    $end = $window['end'];
+
+    if ($start && $end) {
+        return $now >= $start && $now <= $end;
+    } elseif ($start) {
+        return $now >= $start;
+    } elseif ($end) {
+        return $now <= $end;
+    }
+
+    return (bool) $window['enabled'];
+}
+
+function voting_timestamps_for_client(array $config): array
+{
+    $window = get_voting_window($config);
+    $utc = new DateTimeZone('UTC');
+
+    $startUtc = $window['start'] ? (clone $window['start'])->setTimezone($utc)->format(DateTime::ATOM) : '';
+    $endUtc = $window['end'] ? (clone $window['end'])->setTimezone($utc)->format(DateTime::ATOM) : '';
+
+    return [
+        'start' => $startUtc,
+        'end' => $endUtc,
+        'enabled' => $window['enabled'] ? 1 : 0,
+    ];
+}

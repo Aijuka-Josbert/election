@@ -140,6 +140,36 @@ h1, h2, h3, h4 {
     border-radius: 16px;
 }
 
+.contestant-card {
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.contestant-card:hover {
+    transform: translateY(-2px);
+}
+
+.contestant-card-male {
+    background: linear-gradient(155deg, rgba(230, 243, 255, 0.82), rgba(245, 250, 255, 0.95));
+    border: 1px solid rgba(42, 111, 211, 0.28);
+    box-shadow: 0 12px 22px rgba(42, 111, 211, 0.10);
+}
+
+.contestant-card-male:hover {
+    border-color: rgba(42, 111, 211, 0.45);
+    box-shadow: 0 16px 26px rgba(42, 111, 211, 0.16);
+}
+
+.contestant-card-female {
+    background: linear-gradient(155deg, rgba(255, 237, 246, 0.84), rgba(255, 249, 252, 0.96));
+    border: 1px solid rgba(201, 64, 124, 0.26);
+    box-shadow: 0 12px 22px rgba(201, 64, 124, 0.10);
+}
+
+.contestant-card-female:hover {
+    border-color: rgba(201, 64, 124, 0.42);
+    box-shadow: 0 16px 26px rgba(201, 64, 124, 0.16);
+}
+
 .section-title {
     display: flex;
     align-items: center;
@@ -798,6 +828,32 @@ canvas {
         flex-direction: column;
     }
 
+
+/* Prominent logout button in navbar/admin topbar */
+.nav-logout {
+    background: linear-gradient(120deg, #ff5a6b, #c8102e) !important;
+    color: #fff !important;
+    border: none !important;
+}
+
+.admin-topbar {
+    border-bottom: 1px solid rgba(0,0,0,0.04);
+    background: transparent;
+}
+
+/* Voting timer display */
+.voting-timer {
+    font-weight: 600;
+    color: #666666;
+    font-size: 0.98rem;
+}
+
+@media (max-width: 767.98px) {
+    .nav-logout {
+        font-size: 0.95rem;
+        padding: 8px 10px;
+    }
+}
     .step-toast {
         bottom: 80px;
         font-size: 0.85rem;

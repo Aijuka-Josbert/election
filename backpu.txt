@@ -283,11 +283,6 @@ if ($hasVoted) {
 ?>
 <section class="py-5">
     <div class="container">
-        <?php
-        // Expose voting start/end timestamps (UTC) and admin enabled flag for client-side timers
-        $clientVoting = voting_timestamps_for_client($config);
-        ?>
-        <div id="votingMeta" data-start="<?php echo h($clientVoting['start'] ?? ''); ?>" data-end="<?php echo h($clientVoting['end'] ?? ''); ?>" data-enabled="<?php echo (int) ($clientVoting['enabled'] ?? 0); ?>" data-base="<?php echo h($baseUrl); ?>" style="display:none"></div>
         <div class="section-title">
             <span>Voting</span>
             <h2 class="mb-0">Rate each contestant</h2>
@@ -398,7 +393,7 @@ if ($hasVoted) {
                                                     <div class="row g-3">
                                                         <?php foreach ($contestantsByGender[$section['key']] as $contestant): ?>
                                                             <div class="col-12">
-                                                                <div class="card-dark contestant-card <?php echo $section['key'] === 'male' ? 'contestant-card-male' : 'contestant-card-female'; ?> p-3 h-100">
+                                                                <div class="card-dark p-3 h-100">
                                                                     <div class="d-flex gap-3">
                                                                         <img class="contestant-img" src="<?php echo h(asset_url($contestant['photo'], $config)); ?>" alt="<?php echo h($contestant['name']); ?>">
                                                                         <div>
@@ -580,3 +575,746 @@ if ($hasVoted) {
     </div>
 </section>
 <?php require_once __DIR__ . '/includes/footer.php'; ?>
+
+
+//helper.php
+<?php
+/*
+ * helpers.php
+ * Small utility helpers used across the app for escaping, URL helpers,
+ * environment resolution and simple app settings persistence.
+ */
+
+function h(string $value): string
+{
+    return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+}
+
+function is_logged_in(): bool
+{
+    return !empty($_SESSION['user_id']);
+}
+
+function is_admin(array $config): bool
+{
+    if (empty($_SESSION['user_email'])) {
+        return false;
+    }
+
+    // Admins are determined by email address listed in the config
+    return in_array($_SESSION['user_email'], $config['app']['admin_emails'], true);
+}
+
+function base_url(array $config): string
+{
+    $base = trim($config['app']['base_url'] ?? '');
+    if ($base !== '') {
+        return rtrim($base, '/');
+    }
+
+    $scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
+    if ($scriptName === '') {
+        return '';
+    }
+
+    $normalized = str_replace('\\', '/', $scriptName);
+    if (strpos($normalized, '/admin/') !== false) {
+        $basePath = strstr($normalized, '/admin/', true);
+        return $basePath === false ? '' : rtrim($basePath, '/');
+    }
+
+    $dir = rtrim(str_replace(basename($normalized), '', $normalized), '/');
+    return $dir === '' ? '' : $dir;
+}
+
+function asset_url(string $path, array $config): string
+{
+    $base = absolute_base_url($config);
+    $cleanPath = ltrim($path, '/');
+
+    if ($base === '') {
+        return $cleanPath;
+    }
+
+    return $base . '/' . $cleanPath;
+}
+
+function asset_url_versioned(string $path, array $config): string
+{
+    $url = asset_url($path, $config);
+    $cleanPath = ltrim($path, '/');
+    $fullPath = __DIR__ . '/../' . $cleanPath;
+
+    if (!is_file($fullPath)) {
+        return $url;
+    }
+
+    $version = (string) filemtime($fullPath);
+    $separator = strpos($url, '?') === false ? '?' : '&';
+
+    return $url . $separator . 'v=' . rawurlencode($version);
+}
+
+function absolute_base_url(array $config): string
+{
+    $basePath = base_url($config);
+    
+    // If base_url is explicitly set in config, use it
+    if (!empty($config['app']['base_url'])) {
+        return rtrim($config['app']['base_url'], '/');
+    }
+    
+    $host = $_SERVER['HTTP_HOST'] ?? '';
+    if ($host === '') {
+        return $basePath;
+    }
+
+    // Force HTTPS for live server
+    $isLive = strpos($host, 'umuelections.fwh.is') !== false;
+    $isHttps = $isLive || (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+    $scheme = $isHttps ? 'https' : 'http';
+
+    return $scheme . '://' . $host . $basePath;
+}
+
+function resolve_environment(array $config): string
+{
+    // Determine which environment configuration to use based on host
+    $host = strtolower($_SERVER['HTTP_HOST'] ?? '');
+    $envs = $config['environments'] ?? [];
+    foreach ($envs as $envName => $envConfig) {
+        $hosts = $envConfig['hosts'] ?? [];
+        foreach ($hosts as $envHost) {
+            if ($envHost !== '' && strpos($host, strtolower($envHost)) !== false) {
+                return $envName;
+            }
+        }
+    }
+
+    return 'local';
+}
+
+function runtime_config(array $config): array
+{
+    // Apply environment-specific overrides (e.g., DB credentials)
+    $envName = resolve_environment($config);
+    $envs = $config['environments'] ?? [];
+    $envConfig = $envs[$envName] ?? [];
+
+    if (!empty($envConfig['db'])) {
+        $config['db'] = $envConfig['db'];
+    }
+
+    return $config;
+}
+
+function ensure_settings_table(PDO $pdo): void
+{
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS app_settings (\n"
+        . "setting_key VARCHAR(64) PRIMARY KEY,\n"
+        . "setting_value TEXT NOT NULL\n"
+        . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+    );
+}
+
+function fetch_app_settings(PDO $pdo): array
+{
+    // Read app-level settings stored in DB and return as key => value array
+    try {
+        ensure_settings_table($pdo);
+        $rows = $pdo->query('SELECT setting_key, setting_value FROM app_settings')->fetchAll();
+    } catch (PDOException $e) {
+        return [];
+    }
+
+    $settings = [];
+    foreach ($rows as $row) {
+        $settings[$row['setting_key']] = $row['setting_value'];
+    }
+
+    return $settings;
+}
+
+function apply_app_settings(array $config, PDO $pdo): array
+{
+    $settings = fetch_app_settings($pdo);
+    if (!$settings) {
+        return $config;
+    }
+    // Map persisted settings (strings) into proper types and merge into config
+    $app = $config['app'] ?? [];
+    foreach ($settings as $key => $value) {
+        switch ($key) {
+            case 'voting_open':
+            case 'results_public':
+                $app[$key] = (bool) (int) $value;
+                break;
+            case 'category_limit':
+                $app[$key] = (int) $value;
+                break;
+            default:
+                $app[$key] = $value;
+                break;
+        }
+    }
+
+    $config['app'] = $app;
+    return $config;
+}
+
+function save_app_settings(PDO $pdo, array $settings): bool
+{
+    // Persist a set of application settings into the DB
+    try {
+        ensure_settings_table($pdo);
+        $stmt = $pdo->prepare('REPLACE INTO app_settings (setting_key, setting_value) VALUES (?, ?)');
+        foreach ($settings as $key => $value) {
+            $stmt->execute([$key, (string) $value]);
+        }
+    } catch (PDOException $e) {
+        return false;
+    }
+
+    return true;
+}
+
+
+//header.php
+<?php
+require_once __DIR__ . '/session.php';
+require_once __DIR__ . '/helpers.php';
+if (!isset($config)) {
+    $config = require __DIR__ . '/../config/config.php';
+}
+require_once __DIR__ . '/db.php';
+if (isset($pdo)) {
+    $config = apply_app_settings($config, $pdo);
+}
+
+if (!headers_sent()) {
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+}
+
+$pageTitle = $pageTitle ?? 'UMU Varsity Ball Voting';
+$baseUrl = base_url($config);
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><?php echo h($pageTitle); ?></title>
+    <link rel="icon" type="image/jpeg" href="<?php echo h(asset_url('assets/images/Untitled.jpeg', $config)); ?>">
+    <link rel="apple-touch-icon" href="<?php echo h(asset_url('assets/images/Untitled.jpeg', $config)); ?>">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Manrope:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link href="<?php echo h(asset_url_versioned('assets/css/style.css', $config)); ?>" rel="stylesheet">
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-dark glass-nav">
+    <div class="container">
+        <a class="navbar-brand" href="<?php echo h($baseUrl . '/index.php'); ?>">
+            <img class="brand-badge" src="<?php echo h(asset_url('assets/images/Untitled.jpeg', $config)); ?>" alt="UMU badge">
+            <span class="brand-dot"></span>
+            <span>UMU Varsity Ball</span>
+        </a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="mainNav">
+            <ul class="navbar-nav ms-auto gap-lg-3">
+                <li class="nav-item"><a class="nav-link" href="<?php echo h($baseUrl . '/index.php'); ?>">Home</a></li>
+                <li class="nav-item"><a class="nav-link" href="<?php echo h($baseUrl . '/vote.php'); ?>">Vote</a></li>
+                <li class="nav-item"><a class="nav-link" href="<?php echo h($baseUrl . '/results.php'); ?>">Results</a></li>
+                <?php if (!empty($_SESSION['user_email']) && is_admin($config)): ?>
+                    <li class="nav-item"><a class="nav-link" href="<?php echo h($baseUrl . '/admin/index.php'); ?>">Admin</a></li>
+                <?php endif; ?>
+            </ul>
+        </div>
+            <div class="ms-lg-4 mt-3 mt-lg-0 auth-action">
+                <?php if (is_logged_in()): ?>
+                    <a class="btn btn-outline-light btn-sm" href="<?php echo h($baseUrl . '/logout.php'); ?>">Logout</a>
+                <?php else: ?>
+                    <a class="btn btn-primary btn-sm" href="<?php echo h($baseUrl . '/login.php'); ?>">Login with Google</a>
+                <?php endif; ?>
+            </div>
+    </div>
+</nav>
+<main>
+
+
+//main.js
+
+document.addEventListener("DOMContentLoaded", () => {
+    const voteForm = document.getElementById("voteForm");
+    const progressBar = document.getElementById("voteProgressBar");
+    const progressText = document.getElementById("voteProgressText");
+    const categoryCounterEl = document.getElementById("categoryCounter");
+    const totalCategoriesEl = document.getElementById("totalCategories");
+    const categoryProgressContainer = document.getElementById("categoryProgressContainer");
+
+    const updateVoteProgress = () => {
+        if (!voteForm || !progressBar || !progressText) {
+            return;
+        }
+
+        const total = Number(voteForm.dataset.total || 0);
+        const inputs = voteForm.querySelectorAll("input.star-input:checked");
+        let filled = 0;
+        inputs.forEach(() => {
+            filled += 1;
+        });
+
+        const percent = total ? Math.round((filled / total) * 100) : 0;
+        progressBar.style.width = `${percent}%`;
+        progressText.textContent = `${percent}% completed`;
+        
+        // Update category completion counter
+        updateCategoryProgress();
+    };
+
+    const updateCategoryProgress = () => {
+        if (!voteForm || !categoryProgressContainer) {
+            return;
+        }
+
+        const voteSteps = voteForm.querySelectorAll(".vote-step");
+        let completedCount = 0;
+
+        voteSteps.forEach((stepEl) => {
+            const stepIndex = parseInt(stepEl.dataset.step, 10);
+            const categoryId = stepEl.dataset.categoryId;
+            const progressStep = categoryProgressContainer.querySelector(`[data-step="${stepIndex}"]`);
+
+            if (!progressStep) {
+                return;
+            }
+
+            const ratingGroups = stepEl.querySelectorAll(".star-rating");
+            let stepComplete = true;
+
+            for (const group of ratingGroups) {
+                if (!group.querySelector("input.star-input:checked")) {
+                    stepComplete = false;
+                    break;
+                }
+            }
+
+            if (stepComplete) {
+                completedCount += 1;
+                progressStep.classList.add("completed");
+                progressStep.classList.remove("active");
+            } else {
+                progressStep.classList.remove("completed");
+            }
+        });
+
+        if (categoryCounterEl) {
+            categoryCounterEl.textContent = completedCount;
+        }
+    };
+
+    updateVoteProgress();
+
+    document.querySelectorAll(".star-input").forEach((input) => {
+        input.addEventListener("change", updateVoteProgress);
+    });
+
+    const voteSteps = document.querySelectorAll(".vote-step");
+    const prevCategoryBtn = document.getElementById("prevCategoryBtn");
+    const nextCategoryBtn = document.getElementById("nextCategoryBtn");
+    const submitVoteBtn = document.getElementById("submitVoteBtn");
+    const currentCategoryTitle = document.getElementById("currentCategoryTitle");
+    const currentCategoryMeta = document.getElementById("currentCategoryMeta");
+    const stepToast = document.getElementById("stepToast");
+    let toastTimer = null;
+    let currentStep = 0;
+
+    const isStepComplete = (stepEl) => {
+        if (!stepEl) {
+            return false;
+        }
+
+        const ratingGroups = stepEl.querySelectorAll(".star-rating");
+        for (const group of ratingGroups) {
+            if (!group.querySelector("input.star-input:checked")) {
+                return false;
+            }
+        }
+
+        return true;
+    };
+
+    const updateStepper = () => {
+        voteSteps.forEach((stepEl, index) => {
+            stepEl.style.display = index === currentStep ? "" : "none";
+        });
+
+        const activeStep = voteSteps[currentStep];
+        const categoryName = activeStep?.dataset?.category || "";
+        const gender = activeStep?.dataset?.gender || "";
+        
+        let genderLabel;
+        if (gender === "all") {
+            genderLabel = "Mr & Mrs UMU Rubaga";
+        } else if (gender === "female") {
+            genderLabel = "Mrs UMU Rubaga";
+        } else {
+            genderLabel = "Mr UMU Rubaga";
+        }
+
+        if (currentCategoryTitle) {
+            currentCategoryTitle.textContent = `Step ${currentStep + 1} of ${voteSteps.length}`;
+        }
+        if (currentCategoryMeta) {
+            currentCategoryMeta.textContent = `${genderLabel} - ${categoryName}`;
+        }
+        if (prevCategoryBtn) {
+            prevCategoryBtn.disabled = currentStep === 0;
+        }
+        if (nextCategoryBtn) {
+            nextCategoryBtn.disabled = currentStep >= voteSteps.length - 1;
+        }
+        if (submitVoteBtn) {
+            submitVoteBtn.style.display = currentStep === voteSteps.length - 1 ? "inline-block" : "none";
+        }
+
+        // Update progress bar active step indicator
+        if (categoryProgressContainer) {
+            const progressSteps = categoryProgressContainer.querySelectorAll(".progress-step");
+            progressSteps.forEach((step) => {
+                step.classList.remove("active");
+                const stepIndex = parseInt(step.dataset.step, 10);
+                if (stepIndex === currentStep) {
+                    step.classList.add("active");
+                }
+            });
+        }
+
+        if (activeStep) {
+            activeStep.classList.remove("step-change");
+            requestAnimationFrame(() => {
+                activeStep.classList.add("step-change");
+            });
+        }
+
+        if (stepToast) {
+            stepToast.textContent = `Now voting: ${genderLabel} - ${categoryName}`;
+            stepToast.classList.add("show");
+            if (toastTimer) {
+                clearTimeout(toastTimer);
+            }
+            toastTimer = setTimeout(() => {
+                stepToast.classList.remove("show");
+            }, 2200);
+        }
+    };
+
+    if (voteSteps.length) {
+        updateStepper();
+    }
+
+    const bindTap = (el, handler) => {
+        if (!el) {
+            return;
+        }
+
+        let lastTouchAt = 0;
+
+        el.addEventListener("touchend", (e) => {
+            lastTouchAt = Date.now();
+            handler(e);
+        }, { passive: false });
+
+        el.addEventListener("click", (e) => {
+            if (Date.now() - lastTouchAt < 600) {
+                return;
+            }
+            handler(e);
+        });
+    };
+
+    const handlePrevClick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (currentStep > 0) {
+            currentStep -= 1;
+            updateStepper();
+            // Scroll to top on mobile
+            if (window.innerWidth < 768) {
+                setTimeout(() => {
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                }, 100);
+            }
+        }
+    };
+    bindTap(prevCategoryBtn, handlePrevClick);
+
+    const handleNextClick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const activeStep = voteSteps[currentStep];
+        if (!isStepComplete(activeStep)) {
+            alert("Please rate every contestant in this category before continuing.");
+            return;
+        }
+
+        if (currentStep < voteSteps.length - 1) {
+            currentStep += 1;
+            updateStepper();
+            // Scroll to top on mobile
+            if (window.innerWidth < 768) {
+                setTimeout(() => {
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                }, 100);
+            }
+        }
+    };
+    bindTap(nextCategoryBtn, handleNextClick);
+
+    if (voteForm && voteSteps.length) {
+        voteForm.addEventListener("change", (event) => {
+            if (!event.target.classList.contains("star-input")) {
+                return;
+            }
+
+            const activeStep = voteSteps[currentStep];
+            if (!activeStep || !isStepComplete(activeStep)) {
+                return;
+            }
+
+            if (currentStep < voteSteps.length - 1) {
+                currentStep += 1;
+                updateStepper();
+            }
+        });
+    }
+
+    const countdown = document.getElementById("countdown");
+    const eventDate = countdown?.dataset?.eventDate;
+
+    if (countdown && eventDate) {
+        const updateCountdown = () => {
+            const now = new Date();
+            const target = new Date(eventDate);
+            const diff = target - now;
+
+            if (diff <= 0) {
+                countdown.textContent = "Voting is live now";
+                return;
+            }
+
+            const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+            const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
+            const mins = Math.floor((diff / (1000 * 60)) % 60);
+
+            countdown.textContent = `${days}d ${hours}h ${mins}m to gala night`;
+        };
+
+        updateCountdown();
+        setInterval(updateCountdown, 60000);
+    }
+
+    const initRankingChart = (canvasId, color = "rgba(201, 162, 39, 0.6)") => {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || !window.Chart) {
+            return;
+        }
+
+        const labels = JSON.parse(canvas.dataset.labels || "[]");
+        const scores = JSON.parse(canvas.dataset.scores || "[]");
+        if (!labels.length) {
+            return;
+        }
+
+        const borderColor = color.replace("0.6", "1").replace("0.5", "1");
+        new Chart(canvas, {
+            type: "bar",
+            data: {
+                labels,
+                datasets: [
+                    {
+                        label: "Average score",
+                        data: scores,
+                        backgroundColor: color,
+                        borderColor,
+                        borderWidth: 1,
+                    },
+                ],
+            },
+            options: {
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true, max: 5 } },
+            },
+        });
+    };
+
+    initRankingChart("overallChartMale", "rgba(201, 162, 39, 0.6)");
+    initRankingChart("overallChartFemale", "rgba(200, 16, 46, 0.5)");
+
+    const categoryChart = document.getElementById("categoryChart");
+    if (categoryChart && window.Chart) {
+        const labels = JSON.parse(categoryChart.dataset.labels || "[]");
+        const scores = JSON.parse(categoryChart.dataset.scores || "[]");
+        if (labels.length) {
+            const isMobile = window.matchMedia("(max-width: 767.98px)").matches;
+            new Chart(categoryChart, {
+                type: "bar",
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: "Category average",
+                            data: scores,
+                            backgroundColor: "rgba(200, 16, 46, 0.5)",
+                            borderColor: "rgba(200, 16, 46, 1)",
+                            borderWidth: 1,
+                        },
+                    ],
+                },
+                options: {
+                    indexAxis: isMobile ? "x" : "y",
+                    plugins: { legend: { display: false } },
+                    scales: isMobile
+                        ? { y: { beginAtZero: true, max: 5 } }
+                        : { x: { beginAtZero: true, max: 5 } },
+                },
+            });
+        }
+    }
+
+    const sliders = document.querySelectorAll(".results-slider");
+    sliders.forEach((slider) => {
+        const track = slider.querySelector(".results-track");
+        const slides = Array.from(slider.querySelectorAll(".result-slide"));
+        const prevBtn = slider.querySelector(".slider-btn.prev");
+        const nextBtn = slider.querySelector(".slider-btn.next");
+        const dots = slider.querySelector(".slider-dots");
+        if (!track || slides.length === 0) {
+            return;
+        }
+
+        let currentIndex = 0;
+        const autoplay = slider.dataset.autoplay === "true";
+        let timer = null;
+
+        const renderDots = () => {
+            if (!dots) {
+                return;
+            }
+            dots.innerHTML = "";
+            slides.forEach((_, index) => {
+                const dot = document.createElement("button");
+                dot.type = "button";
+                dot.className = "slider-dot";
+                if (index === currentIndex) {
+                    dot.classList.add("active");
+                }
+                dot.addEventListener("click", () => {
+                    goTo(index);
+                });
+                dots.appendChild(dot);
+            });
+        };
+
+        const update = () => {
+            track.style.transform = `translateX(${-currentIndex * 100}%)`;
+            renderDots();
+        };
+
+        const goTo = (index) => {
+            currentIndex = (index + slides.length) % slides.length;
+            update();
+        };
+
+        prevBtn?.addEventListener("click", () => goTo(currentIndex - 1));
+        nextBtn?.addEventListener("click", () => goTo(currentIndex + 1));
+
+        let touchStartX = 0;
+        let touchEndX = 0;
+
+        const startAutoplay = () => {
+            timer = setInterval(() => {
+                goTo(currentIndex + 1);
+            }, 5000);
+        };
+
+        const stopAutoplay = () => {
+            if (timer) {
+                clearInterval(timer);
+                timer = null;
+            }
+        };
+
+        if (autoplay) {
+            startAutoplay();
+            slider.addEventListener("mouseenter", stopAutoplay);
+            slider.addEventListener("mouseleave", startAutoplay);
+        }
+
+        slider.addEventListener("touchstart", (event) => {
+            touchStartX = event.changedTouches[0]?.screenX ?? 0;
+            stopAutoplay();
+        });
+
+        slider.addEventListener("touchend", (event) => {
+            touchEndX = event.changedTouches[0]?.screenX ?? 0;
+            const delta = touchStartX - touchEndX;
+            if (Math.abs(delta) > 40) {
+                if (delta > 0) {
+                    goTo(currentIndex + 1);
+                } else {
+                    goTo(currentIndex - 1);
+                }
+            }
+
+            if (autoplay) {
+                startAutoplay();
+            }
+        });
+
+        update();
+    });
+
+    const printBtn = document.getElementById("printResultsBtn");
+    if (printBtn) {
+        printBtn.addEventListener("click", () => {
+            window.print();
+        });
+    }
+});
+
+//admin/partials/hearder.php
+<?php
+require_once __DIR__ . '/../../includes/session.php';
+require_once __DIR__ . '/../../includes/helpers.php';
+if (!isset($config)) {
+    $config = require __DIR__ . '/../../config/config.php';
+}
+require_once __DIR__ . '/../../includes/db.php';
+if (isset($pdo)) {
+    $config = apply_app_settings($config, $pdo);
+}
+$pageTitle = $pageTitle ?? 'Admin - UMU Varsity Ball';
+$activePage = $activePage ?? '';
+$baseUrl = base_url($config);
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title><?php echo h($pageTitle); ?></title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Manrope:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link href="<?php echo h(asset_url('assets/css/style.css', $config)); ?>" rel="stylesheet">
+</head>
+<body>
+<div class="admin-layout">
+    <?php require __DIR__ . '/sidebar.php'; ?>
+    <div class="admin-content">

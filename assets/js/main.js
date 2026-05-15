@@ -435,4 +435,114 @@ document.addEventListener("DOMContentLoaded", () => {
             window.print();
         });
     }
+
+    // Voting timer: show countdown using server-side status polling (no auto-reload)
+    (function initVotingTimer() {
+        const meta = document.getElementById('votingMeta');
+        if (!meta) return;
+
+        const base = (meta.dataset.base || '').replace(/\/$/, '');
+        const apiPath = (path) => (base ? `${base}/${path.replace(/^\//, '')}` : path.replace(/^\//, ''));
+
+        const startStr = meta.dataset.start || '';
+        const endStr = meta.dataset.end || '';
+        const adminEnabled = meta.dataset.enabled === '1';
+
+        const start = startStr ? new Date(startStr) : null;
+        const end = endStr ? new Date(endStr) : null;
+
+        const findOrCreateTimerEl = () => {
+            let el = document.getElementById('votingTimer');
+            if (el) return el;
+            const alert = document.querySelector('.container > .alert') || document.querySelector('.alert') || document.querySelector('.section-title');
+            el = document.createElement('div');
+            el.id = 'votingTimer';
+            el.className = 'voting-timer mt-2 text-muted';
+            if (alert && alert.parentNode) {
+                alert.appendChild(el);
+            } else {
+                const container = document.querySelector('.container');
+                if (container) container.insertBefore(el, container.firstChild);
+            }
+            return el;
+        };
+
+        const timerEl = findOrCreateTimerEl();
+
+        const formatDiff = (ms) => {
+            if (ms <= 0) return '0s';
+            const s = Math.floor(ms / 1000);
+            const days = Math.floor(s / 86400);
+            const hours = Math.floor((s % 86400) / 3600);
+            const mins = Math.floor((s % 3600) / 60);
+            const secs = s % 60;
+            if (days > 0) return `${days}d ${hours}h ${mins}m`;
+            if (hours > 0) return `${hours}h ${mins}m ${secs}s`;
+            if (mins > 0) return `${mins}m ${secs}s`;
+            return `${secs}s`;
+        };
+
+        const updateLocal = () => {
+            const now = new Date();
+
+            if (!adminEnabled && !start && !end) {
+                timerEl.textContent = 'Voting is currently disabled by the admin.';
+                return;
+            }
+
+            if (start && now < start) {
+                timerEl.textContent = `Voting opens in ${formatDiff(start - now)}`;
+            } else if (end && now < end) {
+                timerEl.textContent = `Voting closes in ${formatDiff(end - now)}`;
+            } else if (start && end && now >= end) {
+                timerEl.textContent = 'Voting window has closed.';
+            } else if (adminEnabled && !start && !end) {
+                timerEl.textContent = 'Voting is enabled.';
+            } else {
+                timerEl.textContent = '';
+            }
+        };
+
+        // Poll server for authoritative open/close state and prompt user to refresh when voting starts
+        let lastServerOpen = null;
+        const checkServer = async () => {
+            try {
+                const res = await fetch(apiPath('api/voting_status.php') + '?_=' + Date.now(), { cache: 'no-store' });
+                if (!res.ok) return;
+                const data = await res.json();
+                const serverOpen = !!Number(data.open);
+
+                if (lastServerOpen === null) {
+                    lastServerOpen = serverOpen;
+                } else if (!lastServerOpen && serverOpen) {
+                    // Voting has just opened on the server
+                    showOpenBanner();
+                    lastServerOpen = serverOpen;
+                } else {
+                    lastServerOpen = serverOpen;
+                }
+            } catch (e) {
+                // ignore network errors
+            }
+        };
+
+        const showOpenBanner = () => {
+            if (document.getElementById('votingOpenBanner')) return;
+            const banner = document.createElement('div');
+            banner.id = 'votingOpenBanner';
+            banner.className = 'alert alert-success text-center';
+            banner.style.marginTop = '12px';
+            banner.innerHTML = `Voting has started — <button type="button" class="btn btn-sm btn-primary ms-2" id="refreshToVoteBtn">Refresh to vote</button>`;
+            const container = document.querySelector('.container');
+            if (container) container.insertBefore(banner, container.firstChild);
+            const btn = document.getElementById('refreshToVoteBtn');
+            if (btn) btn.addEventListener('click', () => location.reload());
+        };
+
+        updateLocal();
+        setInterval(updateLocal, 1000);
+        // initial check and poll every 10s
+        checkServer();
+        setInterval(checkServer, 10000);
+    })();
 });
