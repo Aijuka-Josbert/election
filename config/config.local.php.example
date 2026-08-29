@@ -1,0 +1,49 @@
+<?php
+/*
+ * config.local.php.example
+ *
+ * Copy this file to config.local.php (same folder) and fill in real
+ * values. config.local.php is in .gitignore and is loaded automatically
+ * by config.php via array_replace_recursive — it is never committed.
+ *
+ *   cp config/config.local.php.example config/config.local.php
+ *
+ * You can also skip this file entirely and set the equivalent
+ * DB_HOST / DB_NAME / DB_USER / DB_PASS / LIVE_DB_* / GOOGLE_CLIENT_ID /
+ * GOOGLE_CLIENT_SECRET environment variables instead — config.php reads
+ * both.
+ */
+
+return [
+    'db' => [
+        'host' => 'localhost',
+        'name' => 'umu_vote',
+        'user' => 'root',
+        'pass' => 'CHANGE_ME',
+        'charset' => 'utf8mb4',
+    ],
+    'environments' => [
+        'local' => [
+            'db' => [
+                'host' => 'localhost',
+                'name' => 'umu_vote',
+                'user' => 'root',
+                'pass' => 'CHANGE_ME',
+                'charset' => 'utf8mb4',
+            ],
+        ],
+        'live' => [
+            'db' => [
+                'host' => 'CHANGE_ME',
+                'name' => 'CHANGE_ME',
+                'user' => 'CHANGE_ME',
+                'pass' => 'CHANGE_ME',
+                'charset' => 'utf8mb4',
+            ],
+        ],
+    ],
+    'google' => [
+        'client_id' => 'CHANGE_ME.apps.googleusercontent.com',
+        'client_secret' => 'CHANGE_ME',
+    ],
+];

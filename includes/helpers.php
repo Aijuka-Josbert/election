@@ -259,3 +259,158 @@ function voting_timestamps_for_client(array $config): array
         'enabled' => $window['enabled'] ? 1 : 0,
     ];
 }
+
+/**
+ * Single source of truth for "is voting open right now, and what should the
+ * banner say". Previously this exact logic was duplicated (and drifting)
+ * across vote.php, admin/settings.php and results.php, which is what let a
+ * disabled/expired voting window still appear open on some pages.
+ */
+function voting_status_message(array $config): array
+{
+    $window = get_voting_window($config);
+    $tz = new DateTimeZone($window['timezone']);
+    $now = new DateTime('now', $tz);
+    $start = $window['start'];
+    $end = $window['end'];
+
+    if (!$window['enabled']) {
+        return ['open' => false, 'message' => 'Voting is disabled by the admin.'];
+    }
+
+    if (!$start && !$end) {
+        return ['open' => true, 'message' => 'Voting is open now.'];
+    }
+
+    $open = true;
+    if ($start && $end) {
+        $open = $now >= $start && $now <= $end;
+    } elseif ($start) {
+        $open = $now >= $start;
+    } elseif ($end) {
+        $open = $now <= $end;
+    }
+
+    if ($open) {
+        return ['open' => true, 'message' => 'Voting is open now.'];
+    }
+
+    if ($start && $now < $start) {
+        return ['open' => false, 'message' => 'Voting opens on ' . $start->format('M d, Y H:i') . ' (' . $window['timezone'] . ').'];
+    }
+
+    if ($end && $now > $end) {
+        return ['open' => false, 'message' => 'Voting closed on ' . $end->format('M d, Y H:i') . ' (' . $window['timezone'] . ').'];
+    }
+
+    return ['open' => false, 'message' => 'Voting is currently closed.'];
+}
+
+/**
+ * Which ballot workflow is active: 'rating' (the existing 1-5 rate-every-
+ * contestant flow) or 'simple' (pick one contestant per category, one
+ * "Vote Now" submit — a normal single-choice ballot). Defaults to 'rating'
+ * so existing elections are unaffected until an admin opts in.
+ */
+function get_voting_mode(array $config): string
+{
+    $mode = strtolower(trim((string) ($config['app']['voting_mode'] ?? 'rating')));
+    return $mode === 'simple' ? 'simple' : 'rating';
+}
+
+/**
+ * Mode-aware leaderboard: ranks by AVG(score) in rating mode and by
+ * vote COUNT in simple mode (AVG is meaningless once every vote is worth
+ * the same 1 point). Used by vote.php, results.php and certificate.php so
+ * there is one ranking implementation instead of three copies that can
+ * disagree with each other.
+ */
+function get_leaderboard(PDO $pdo, string $mode): array
+{
+    $metricSql = $mode === 'simple' ? 'COUNT(v.id)' : 'AVG(v.score)';
+
+    $categoryRows = $pdo->query(
+        "SELECT c.id AS category_id, c.name AS category_name, c.gender,
+                con.id AS contestant_id, con.name AS contestant_name, con.gender AS contestant_gender, con.photo,
+                $metricSql AS metric
+         FROM categories c
+         JOIN votes v ON v.category_id = c.id
+         JOIN contestants con ON con.id = v.contestant_id
+            AND (c.gender = con.gender OR c.gender = \"all\")
+         GROUP BY c.id, con.id
+         ORDER BY c.id, con.gender, metric DESC"
+    )->fetchAll();
+
+    $categoryLeaders = [];
+    foreach ($categoryRows as $row) {
+        $contestantGender = $row['contestant_gender'] ?? 'male';
+        $key = ($row['gender'] ?? '') === 'all' ? $row['category_id'] . '_' . $contestantGender : $row['category_id'];
+        if (!isset($categoryLeaders[$key]) || $row['metric'] > $categoryLeaders[$key]['metric']) {
+            $categoryLeaders[$key] = $row;
+        }
+    }
+
+    $overallRows = $pdo->query(
+        "SELECT con.id AS contestant_id, con.name AS contestant_name, con.gender, con.photo,
+                $metricSql AS metric
+         FROM contestants con
+         JOIN votes v ON v.contestant_id = con.id
+         JOIN categories c ON c.id = v.category_id
+         WHERE c.gender = con.gender OR c.gender = \"all\"
+         GROUP BY con.id, con.gender
+         ORDER BY con.gender, metric DESC"
+    )->fetchAll();
+
+    // Female first, then male — matches the announcement order requested for
+    // the results/winners screens.
+    $overallWinners = ['female' => null, 'male' => null];
+    foreach ($overallRows as $row) {
+        $gender = $row['gender'] ?? '';
+        if (($gender === 'male' || $gender === 'female') && $overallWinners[$gender] === null) {
+            $overallWinners[$gender] = $row;
+        }
+    }
+
+    return [
+        'mode' => $mode,
+        'category_leaders' => $categoryLeaders,
+        'overall_winners' => $overallWinners,
+    ];
+}
+
+function format_leaderboard_metric(?array $row, string $mode): string
+{
+    if (!$row) {
+        return '';
+    }
+    $value = (float) $row['metric'];
+    if ($mode === 'simple') {
+        $count = (int) round($value);
+        return number_format($count) . ' vote' . ($count === 1 ? '' : 's');
+    }
+    return 'Avg ' . number_format($value, 2) . '/5';
+}
+
+/**
+ * Minimal session-bound CSRF protection for the vote and admin-settings
+ * forms, neither of which had any token before.
+ */
+function csrf_token(): string
+{
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf_token'];
+}
+
+function csrf_field(): string
+{
+    return '<input type="hidden" name="csrf_token" value="' . h(csrf_token()) . '">';
+}
+
+function csrf_verify(): bool
+{
+    $token = $_POST['csrf_token'] ?? '';
+    return is_string($token) && $token !== '' && !empty($_SESSION['csrf_token'])
+        && hash_equals($_SESSION['csrf_token'], $token);
+}

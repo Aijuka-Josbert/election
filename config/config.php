@@ -9,32 +9,41 @@
 
 $host = $_SERVER['HTTP_HOST'] ?? '';
 $isLive = strpos($host, 'umuelections.fwh.is') !== false;
+
+/*
+ * SECURITY: real credentials must never live in this tracked file — this
+ * repo is public on GitHub. Every value below is a safe placeholder that
+ * only works together with config/config.local.php (untracked, see
+ * config/config.local.php.example) which overrides it at the bottom of
+ * this file. If config.local.php is missing, the app runs with these
+ * placeholders and the DB connection will simply fail closed.
+ */
 $config = [
     'db' => [
-        'host' => 'localhost',
-        'name' => 'umu_vote',
-        'user' => 'root',
-        'pass' => 'ianmufasa9114',
+        'host' => getenv('DB_HOST') ?: 'localhost',
+        'name' => getenv('DB_NAME') ?: 'umu_vote',
+        'user' => getenv('DB_USER') ?: 'root',
+        'pass' => getenv('DB_PASS') ?: '',
         'charset' => 'utf8mb4',
     ],
     'environments' => [
         'local' => [
             'hosts' => ['localhost', '127.0.0.1'],
             'db' => [
-                'host' => 'localhost',
-                'name' => 'umu_vote',
-                'user' => 'root',
-                'pass' => 'ianmufasa9114',
+                'host' => getenv('DB_HOST') ?: 'localhost',
+                'name' => getenv('DB_NAME') ?: 'umu_vote',
+                'user' => getenv('DB_USER') ?: 'root',
+                'pass' => getenv('DB_PASS') ?: '',
                 'charset' => 'utf8mb4',
             ],
         ],
         'live' => [
             'hosts' => ['umuelections.fwh.is'],
             'db' => [
-                'host' => 'sql212.infinityfree.com',
-                'name' => 'if0_41909216_umu_vote',
-                'user' => 'if0_41909216',
-                'pass' => 'Josbert001',
+                'host' => getenv('LIVE_DB_HOST') ?: '',
+                'name' => getenv('LIVE_DB_NAME') ?: '',
+                'user' => getenv('LIVE_DB_USER') ?: '',
+                'pass' => getenv('LIVE_DB_PASS') ?: '',
                 'charset' => 'utf8mb4',
             ],
         ],
@@ -48,6 +57,7 @@ $config = [
         'voting_open' => false,
         'voting_start' => '',
         'voting_end' => '',
+        'voting_mode' => 'rating',
         'results_public' => false,
         'category_limit' => 10,
         'admin_emails' => [
@@ -55,8 +65,8 @@ $config = [
         ],
     ],
     'google' => [
-        'client_id' => '601051630834-grdi2to42eub69ap1oltiqa80phkqter.apps.googleusercontent.com',
-        'client_secret' => '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',
+        'client_id' => getenv('GOOGLE_CLIENT_ID') ?: '',
+        'client_secret' => getenv('GOOGLE_CLIENT_SECRET') ?: '',
         'redirect_uri' => $isLive
             ? 'https://umuelections.fwh.is/umu_vote/google-callback.php'
             : 'http://localhost/umu_vote/google-callback.php',
