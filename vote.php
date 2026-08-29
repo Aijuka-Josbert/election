@@ -38,43 +38,12 @@ if ($hasVoted === 1 && $voteCount === 0) {
     $updateFlag->execute([$userId]);
 }
 
-// Check configured voting window and open flag
-$votingOpen = (bool) ($config['app']['voting_open'] ?? true);
-$start = $config['app']['voting_start'] ?? '';
-$end = $config['app']['voting_end'] ?? '';
-$tzName = $config['app']['timezone'] ?? 'UTC';
-$tz = new DateTimeZone($tzName);
-$now = new DateTime('now', $tz);
-$startTime = $start ? new DateTime($start, $tz) : null;
-$endTime = $end ? new DateTime($end, $tz) : null;
-
-if ($startTime && $endTime && $endTime <= $startTime) {
-    $endTime = (clone $endTime)->modify('+1 day');
-}
-$votingStatusMessage = '';
-
-if (!$votingOpen) {
-    $votingStatusMessage = 'Voting is disabled by the admin.';
-}
-
-if ($votingOpen && ($startTime || $endTime)) {
-    // Apply start/end window if present
-    if ($startTime && $endTime) {
-        $votingOpen = $now >= $startTime && $now <= $endTime;
-    } elseif ($startTime) {
-        $votingOpen = $now >= $startTime;
-    } elseif ($endTime) {
-        $votingOpen = $now <= $endTime;
-    }
-
-    if (!$votingOpen) {
-        if ($startTime && $now < $startTime) {
-            $votingStatusMessage = 'Voting opens on ' . $startTime->format('M d, Y H:i') . ' (' . $tzName . ').';
-        } elseif ($endTime && $now > $endTime) {
-            $votingStatusMessage = 'Voting closed on ' . $endTime->format('M d, Y H:i') . ' (' . $tzName . ').';
-        }
-    }
-}
+// Check configured voting window and open flag (single shared
+// implementation — see includes/helpers.php::voting_status_message()).
+$votingStatus = voting_status_message($config);
+$votingOpen = $votingStatus['open'];
+$votingStatusMessage = $votingStatus['open'] ? '' : $votingStatus['message'];
+$votingMode = get_voting_mode($config);
 
 // Load categories and contestants (limited by config)
 $limit = (int) ($config['app']['category_limit'] ?? 10);
@@ -106,36 +75,83 @@ $contestantSections = [
 $errors = [];
 $success = false;
 $submittedScores = [];
+$submittedChoices = [];
 
-// Handle form submit: validate every required score and persist votes
+// Given a category, return which gender group(s) of contestants apply to it.
+function categoryContestantGroups(array $category): array
+{
+    $categoryGender = $category['gender'] ?? 'all';
+    return $categoryGender === 'all' ? ['male', 'female'] : [$categoryGender];
+}
+
+// Handle form submit: validate the ballot and persist votes. Both modes
+// share the same gating (not voted yet, voting currently open, CSRF valid)
+// and the same "insert already happened" race handling; only the shape of
+// what gets validated/inserted differs.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$hasVoted && $votingOpen) {
-    // RE-VALIDATE voting time at submission to prevent race conditions
-    $nowSubmit = new DateTime('now', $tz);
-    $votingOpenAtSubmit = true;
-    if ($startTime && $endTime) {
-        $votingOpenAtSubmit = $nowSubmit >= $startTime && $nowSubmit <= $endTime;
-    } elseif ($startTime) {
-        $votingOpenAtSubmit = $nowSubmit >= $startTime;
-    } elseif ($endTime) {
-        $votingOpenAtSubmit = $nowSubmit <= $endTime;
+    if (!csrf_verify()) {
+        $errors[] = 'Your session expired or the form was resubmitted. Please reload the page and try again.';
     }
-    
-    if (!$votingOpenAtSubmit) {
+
+    // RE-VALIDATE voting time at submission to prevent race conditions
+    // (uses the same shared window check as the page-load gate above).
+    if (!$errors && !voting_status_message($config)['open']) {
         $errors[] = 'Voting window has closed. Your submission could not be processed.';
-    } elseif (!$categories || !$contestants) {
+    } elseif (!$errors && (!$categories || !$contestants)) {
         $errors[] = 'Voting is not ready. Please check back later.';
-    } else {
+    }
+
+    if (!$errors && $votingMode === 'simple') {
+        // SIMPLE MODE: one chosen contestant per category.
+        $choices = [];
         foreach ($categories as $category) {
-            $categoryGender = $category['gender'] ?? 'all';
-            // Determine which contestant groups to validate based on category gender
-            $groupsToValidate = [];
-            if ($categoryGender === 'all') {
-                $groupsToValidate = ['male', 'female'];
-            } else {
-                $groupsToValidate = [$categoryGender];
+            $groups = categoryContestantGroups($category);
+            $eligibleIds = [];
+            foreach ($groups as $groupKey) {
+                foreach ($contestantsByGender[$groupKey] as $contestant) {
+                    $eligibleIds[] = (int) $contestant['id'];
+                }
             }
-            
-            foreach ($groupsToValidate as $groupKey) {
+
+            $chosenId = $_POST['choices'][$category['id']] ?? null;
+            if ($chosenId === null || !is_numeric($chosenId) || !in_array((int) $chosenId, $eligibleIds, true)) {
+                $errors[] = 'Please choose one contestant in every category.';
+                break;
+            }
+            $choices[$category['id']] = (int) $chosenId;
+        }
+
+        if (!$errors) {
+            $pdo->beginTransaction();
+            try {
+                $insert = $pdo->prepare('INSERT INTO votes (user_id, contestant_id, category_id, score) VALUES (?, ?, ?, 1)');
+                foreach ($choices as $categoryId => $contestantId) {
+                    $insert->execute([$userId, $contestantId, $categoryId]);
+                }
+                $update = $pdo->prepare('UPDATE users SET has_voted = 1 WHERE id = ?');
+                $update->execute([$userId]);
+                $pdo->commit();
+
+                $_SESSION['has_voted'] = 1;
+                $hasVoted = 1;
+                $success = true;
+                $submittedChoices = $choices;
+            } catch (PDOException $e) {
+                $pdo->rollBack();
+                // Unique key (user_id, contestant_id, category_id) means this
+                // is almost certainly a double-submit race, not real data
+                // loss — the earlier request already recorded the vote.
+                $update = $pdo->prepare('UPDATE users SET has_voted = 1 WHERE id = ?');
+                $update->execute([$userId]);
+                $_SESSION['has_voted'] = 1;
+                $hasVoted = 1;
+                $success = true;
+            }
+        }
+    } elseif (!$errors) {
+        // RATING MODE: score 1-5 for every contestant in every category.
+        foreach ($categories as $category) {
+            foreach (categoryContestantGroups($category) as $groupKey) {
                 foreach ($contestantsByGender[$groupKey] as $contestant) {
                     $score = $_POST['scores'][$category['id']][$contestant['id']] ?? null;
                     if ($score === null || !is_numeric($score)) {
@@ -151,40 +167,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$hasVoted && $votingOpen) {
                 }
             }
         }
-    }
 
-    if (!$errors) {
-        // Persist votes atomically and mark the user as having voted
-        $pdo->beginTransaction();
-        $insert = $pdo->prepare('INSERT INTO votes (user_id, contestant_id, category_id, score) VALUES (?, ?, ?, ?)');
-
-        foreach ($categories as $category) {
-            $categoryGender = $category['gender'] ?? 'all';
-            // Determine which contestant groups to insert votes for based on category gender
-            $groupsToInsert = [];
-            if ($categoryGender === 'all') {
-                $groupsToInsert = ['male', 'female'];
-            } else {
-                $groupsToInsert = [$categoryGender];
-            }
-            
-            foreach ($groupsToInsert as $groupKey) {
-                foreach ($contestantsByGender[$groupKey] as $contestant) {
-                    $scoreValue = (int) $_POST['scores'][$category['id']][$contestant['id']];
-                    $insert->execute([$userId, $contestant['id'], $category['id'], $scoreValue]);
+        if (!$errors) {
+            $pdo->beginTransaction();
+            try {
+                $insert = $pdo->prepare('INSERT INTO votes (user_id, contestant_id, category_id, score) VALUES (?, ?, ?, ?)');
+                foreach ($categories as $category) {
+                    foreach (categoryContestantGroups($category) as $groupKey) {
+                        foreach ($contestantsByGender[$groupKey] as $contestant) {
+                            $scoreValue = (int) $_POST['scores'][$category['id']][$contestant['id']];
+                            $insert->execute([$userId, $contestant['id'], $category['id'], $scoreValue]);
+                        }
+                    }
                 }
+
+                $update = $pdo->prepare('UPDATE users SET has_voted = 1 WHERE id = ?');
+                $update->execute([$userId]);
+                $pdo->commit();
+
+                $_SESSION['has_voted'] = 1;
+                $hasVoted = 1;
+                $success = true;
+                $submittedScores = $_POST['scores'];
+            } catch (PDOException $e) {
+                $pdo->rollBack();
+                // Same double-submit race as above.
+                $update = $pdo->prepare('UPDATE users SET has_voted = 1 WHERE id = ?');
+                $update->execute([$userId]);
+                $_SESSION['has_voted'] = 1;
+                $hasVoted = 1;
+                $success = true;
             }
         }
-
-        $update = $pdo->prepare('UPDATE users SET has_voted = 1 WHERE id = ?');
-        $update->execute([$userId]);
-        $pdo->commit();
-
-        $_SESSION['has_voted'] = 1;
-        $hasVoted = 1;
-        $success = true;
-
-        $submittedScores = $_POST['scores'];
     }
 }
 
@@ -213,12 +227,19 @@ foreach ($categories as $category) {
     $totalRatings += count($contestants);
 }
 
-// Load current winners and leaders for display after voting
+// Load current winners and leaders for display after voting. Previously
+// this whole block was admin-only, hard-coded to AVG(score), and
+// duplicated the same query results.php also runs separately. Now it
+// (a) uses the shared, mode-aware get_leaderboard() helper, and
+// (b) is shown to any voter once results are public, not admins only —
+// matching the visibility rule results.php already uses.
 $categoryLeaders = [];
-$overallWinners = ['male' => null, 'female' => null];
+$overallWinners = ['female' => null, 'male' => null];
 $adminTotals = ['total_votes' => 0, 'total_voters' => 0];
+$resultsPublic = (bool) ($config['app']['results_public'] ?? false);
+$showWinners = $hasVoted && ($isAdmin || $resultsPublic);
 
-if ($hasVoted) {
+if ($showWinners) {
     if ($isAdmin) {
         $adminTotalsStmt = $pdo->query(
             'SELECT COUNT(*) AS total_votes, COUNT(DISTINCT user_id) AS total_voters
@@ -229,58 +250,12 @@ if ($hasVoted) {
         $adminTotals['total_voters'] = (int) ($adminTotalsRow['total_voters'] ?? 0);
     }
 
-    // Get category leaders, separated by gender for "all" categories
-    $categoryLeadersStmt = $pdo->query(
-        'SELECT c.id AS category_id, c.name AS category_name, c.gender,
-                con.id AS contestant_id, con.name AS contestant_name, con.gender AS contestant_gender, con.photo,
-                AVG(v.score) AS avg_score
-         FROM categories c
-         JOIN votes v ON v.category_id = c.id
-         JOIN contestants con ON con.id = v.contestant_id
-            AND (c.gender = con.gender OR c.gender = "all")
-         GROUP BY c.id, con.id
-         ORDER BY c.id, con.gender, avg_score DESC'
-    );
-    $categoryScoresData = $categoryLeadersStmt->fetchAll();
-    foreach ($categoryScoresData as $row) {
-        // For "all" categories, separate by contestant gender
-        $categoryId = $row['category_id'];
-        $contestantGender = $row['contestant_gender'] ?? 'male';
-        $categoryGender = $row['gender'] ?? '';
-        
-        if ($categoryGender === 'all') {
-            $key = $categoryId . '_' . $contestantGender;
-        } else {
-            $key = $categoryId;
-        }
-        
-        if (!isset($categoryLeaders[$key]) || $row['avg_score'] > $categoryLeaders[$key]['avg_score']) {
-            $categoryLeaders[$key] = $row;
-        }
-    }
-
-    // Get overall winners
-    $overallWinnersStmt = $pdo->query(
-        'SELECT con.id AS contestant_id, con.name AS contestant_name, con.gender, con.photo,
-                AVG(v.score) AS avg_score
-         FROM contestants con
-         JOIN votes v ON v.contestant_id = con.id
-         JOIN categories c ON c.id = v.category_id
-         WHERE c.gender = con.gender OR c.gender = "all"
-         GROUP BY con.id, con.gender
-         ORDER BY con.gender, avg_score DESC'
-    );
-    $overallScoresData = $overallWinnersStmt->fetchAll();
-    foreach ($overallScoresData as $row) {
-        $gender = $row['gender'] ?? '';
-        if ($gender === 'male' || $gender === 'female') {
-            if ($overallWinners[$gender] === null) {
-                $overallWinners[$gender] = $row;
-            }
-        }
-    }
+    $board = get_leaderboard($pdo, $votingMode);
+    $categoryLeaders = $board['category_leaders'];
+    $overallWinners = $board['overall_winners'];
 }
 ?>
+<?php // format_leaderboard_metric($row, $votingMode) renders "Avg 4.20/5" or "12 votes" depending on the active mode. ?>
 <section class="py-5">
     <div class="container">
         <?php
@@ -290,7 +265,7 @@ if ($hasVoted) {
         <div id="votingMeta" data-start="<?php echo h($clientVoting['start'] ?? ''); ?>" data-end="<?php echo h($clientVoting['end'] ?? ''); ?>" data-enabled="<?php echo (int) ($clientVoting['enabled'] ?? 0); ?>" data-base="<?php echo h($baseUrl); ?>" style="display:none"></div>
         <div class="section-title">
             <span>Voting</span>
-            <h2 class="mb-0">Rate each contestant</h2>
+            <h2 class="mb-0"><?php echo $votingMode === 'simple' ? 'Vote for your favourite' : 'Rate each contestant'; ?></h2>
         </div>
 
         <?php if (!$votingOpen): ?>
@@ -313,7 +288,7 @@ if ($hasVoted) {
 
         <?php if (!$categories || !$contestants): ?>
             <div class="alert alert-warning">No categories or contestants have been added yet.</div>
-        <?php elseif (!$hasVoted && $votingOpen): ?>
+        <?php elseif (!$hasVoted && $votingOpen && $votingMode === 'rating'): ?>
             <!-- Category Progress Tracker -->
             <div class="category-progress-section mb-4">
                 <div class="progress-header mb-3">
@@ -360,6 +335,7 @@ if ($hasVoted) {
                     $stepTotal = count($categorySteps);
                     ?>
                     <form method="post" id="voteForm" class="vote-form" data-total="<?php echo (int) $totalRatings; ?>" data-steps="<?php echo (int) $stepTotal; ?>" data-categories="<?php echo htmlspecialchars(json_encode(array_map(fn($c) => ['id' => $c['id'], 'name' => $c['name']], $categories)), ENT_QUOTES, 'UTF-8'); ?>">
+                        <?php echo csrf_field(); ?>
                         <?php foreach ($categorySteps as $index => $category): ?>
                             <div class="vote-step mb-5" data-step="<?php echo (int) $index; ?>" data-category-id="<?php echo (int) $category['id']; ?>" data-gender="<?php echo h($category['gender']); ?>" data-category="<?php echo h($category['name']); ?>" style="<?php echo $index === 0 ? '' : 'display:none;'; ?>">
                                 <div class="vote-group mb-4">
@@ -448,11 +424,74 @@ if ($hasVoted) {
                         </div>
                     </form>
                     <div class="step-toast" id="stepToast" role="status" aria-live="polite"></div>
+        <?php elseif (!$hasVoted && $votingOpen && $votingMode === 'simple'): ?>
+            <!-- Simple one-click ballot: one contestant per category, one submit. -->
+            <form method="post" id="simpleVoteForm" class="vote-form-simple">
+                <?php echo csrf_field(); ?>
+                <?php foreach ($categories as $category): ?>
+                    <?php $categoryGender = $category['gender'] ?? 'all'; ?>
+                    <div class="card-dark p-4 mb-4">
+                        <div class="d-flex justify-content-between align-items-center mb-4">
+                            <h3 class="mb-0"><?php echo h($category['name']); ?></h3>
+                            <?php if ($categoryGender !== 'all'): ?>
+                                <span class="badge badge-gold"><?php echo $categoryGender === 'male' ? 'Mr UMU Rubaga' : 'Mrs UMU Rubaga'; ?></span>
+                            <?php endif; ?>
+                        </div>
+                        <div class="row g-4">
+                            <?php foreach ($contestantSections as $section): ?>
+                                <?php
+                                $shouldShow = ($categoryGender === 'all' || $categoryGender === $section['key']);
+                                if (!$shouldShow) continue;
+                                ?>
+                                <div class="col-12 col-md-6">
+                                    <?php if ($categoryGender === 'all'): ?>
+                                        <div class="gender-section-header mb-3">
+                                            <h5 class="mb-0"><?php echo h($section['label']); ?></h5>
+                                        </div>
+                                    <?php endif; ?>
+                                    <div class="row g-3">
+                                        <?php foreach ($contestantsByGender[$section['key']] as $contestant): ?>
+                                            <?php $choiceId = 'choice_' . $category['id'] . '_' . $contestant['id']; ?>
+                                            <div class="col-12">
+                                                <label class="card-dark contestant-card <?php echo $section['key'] === 'male' ? 'contestant-card-male' : 'contestant-card-female'; ?> p-3 h-100 d-flex gap-3 align-items-center choice-card" for="<?php echo h($choiceId); ?>" style="cursor:pointer;">
+                                                    <input
+                                                        type="radio"
+                                                        class="choice-input"
+                                                        id="<?php echo h($choiceId); ?>"
+                                                        name="choices[<?php echo (int) $category['id']; ?>]"
+                                                        value="<?php echo (int) $contestant['id']; ?>"
+                                                        required
+                                                        style="width: 20px; height: 20px; flex-shrink: 0;"
+                                                    >
+                                                    <img class="contestant-img" src="<?php echo h(asset_url($contestant['photo'], $config)); ?>" alt="<?php echo h($contestant['name']); ?>">
+                                                    <div>
+                                                        <h5 class="mb-1"><?php echo h($contestant['name']); ?></h5>
+                                                        <?php if (!empty($contestant['bio'])): ?>
+                                                            <small class="text-muted"><?php echo h($contestant['bio']); ?></small>
+                                                        <?php endif; ?>
+                                                    </div>
+                                                </label>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+                <div class="vote-sticky-bar card-dark p-3">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+                        <small class="text-muted">Pick one contestant in every category, then submit once.</small>
+                        <button class="btn btn-primary btn-lg" type="submit">Vote Now</button>
+                    </div>
+                </div>
+            </form>
         <?php endif; ?>
 
-        <?php if ($hasVoted): ?>
-            <!-- Live Winners Section - Admin Only -->
-            <?php if ($isAdmin): ?>
+        <?php if ($showWinners): ?>
+            <!-- Live Winners Section - visible to admins always, and to any
+                 voter once results are made public (previously admin-only,
+                 leaving regular voters with no winner announcement). -->
             <div class="card-dark p-4 mt-4 mb-4">
                 <div class="section-title mb-4">
                     <span>Live Results</span>
@@ -462,6 +501,7 @@ if ($hasVoted) {
                     <strong>Live leaderboard:</strong> These are the current winners based on all votes cast so far. This updates in real-time as more people vote.
                 </div>
 
+                <?php if ($isAdmin): ?>
                 <div class="row g-3 mb-4">
                     <div class="col-md-6">
                         <div class="card-dark p-3 h-100">
@@ -476,10 +516,11 @@ if ($hasVoted) {
                         </div>
                     </div>
                 </div>
+                <?php endif; ?>
 
-                <!-- Overall Winners -->
+                <!-- Overall Winners: females first, then males -->
                 <div class="row g-4 mb-5">
-                    <?php foreach (['male' => 'Mr UMU Rubaga', 'female' => 'Mrs UMU Rubaga'] as $gender => $title): ?>
+                    <?php foreach (['female' => 'Mrs UMU Rubaga', 'male' => 'Mr UMU Rubaga'] as $gender => $title): ?>
                         <?php $winner = $overallWinners[$gender]; ?>
                         <div class="col-md-6">
                             <div class="card-dark p-4 h-100" style="background: linear-gradient(135deg, rgba(255,193,7,.1) 0%, rgba(255,152,0,.1) 100%);">
@@ -490,7 +531,7 @@ if ($hasVoted) {
                                         <img class="contestant-img" style="width: 100px; height: 100px; border-radius: 50%;" src="<?php echo h(asset_url($winner['photo'], $config)); ?>" alt="<?php echo h($winner['contestant_name']); ?>">
                                         <div>
                                             <h6 class="mb-1"><i class="bi bi-trophy-fill text-warning"></i> <?php echo h($winner['contestant_name']); ?></h6>
-                                            <small class="text-muted">Avg Score: <?php echo number_format((float) $winner['avg_score'], 2); ?>/5</small>
+                                            <small class="text-muted"><?php echo h(format_leaderboard_metric($winner, $votingMode)); ?></small>
                                         </div>
                                     </div>
                                 <?php else: ?>
@@ -503,7 +544,7 @@ if ($hasVoted) {
 
                 <!-- Category Winners -->
                 <h5 class="mb-3">Per Category Winners</h5>
-                <div class="row g-3">
+                <div class="row g-3 mb-4">
                     <?php foreach ($categoryLeaders as $leader): ?>
                         <div class="col-md-6 col-lg-4">
                             <div class="card-dark p-3 h-100">
@@ -519,18 +560,73 @@ if ($hasVoted) {
                                     <img class="contestant-img" style="width: 80px; height: 80px;" src="<?php echo h(asset_url($leader['photo'], $config)); ?>" alt="<?php echo h($leader['contestant_name']); ?>">
                                     <div class="flex-grow-1">
                                         <div class="fw-bold small"><?php echo h($leader['contestant_name']); ?></div>
-                                        <small class="text-muted">Avg: <?php echo number_format((float) $leader['avg_score'], 2); ?>/5</small>
+                                        <small class="text-muted"><?php echo h(format_leaderboard_metric($leader, $votingMode)); ?></small>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     <?php endforeach; ?>
                 </div>
+
+                <!-- Final statement + certificate download, matching results.php -->
+                <div class="border-top pt-4">
+                    <h5 class="mb-2">Final statement</h5>
+                    <?php
+                    $femaleWinnerName = $overallWinners['female']['contestant_name'] ?? 'TBD';
+                    $maleWinnerName = $overallWinners['male']['contestant_name'] ?? 'TBD';
+                    ?>
+                    <p class="text-muted mb-3">
+                        Congratulations to Mrs UMU Rubaga: <?php echo h($femaleWinnerName); ?>, and Mr UMU Rubaga: <?php echo h($maleWinnerName); ?>.
+                    </p>
+                    <div class="d-flex flex-wrap gap-2">
+                        <a class="btn btn-outline-light" href="certificate.php?gender=female">Download Mrs certificate</a>
+                        <a class="btn btn-outline-light" href="certificate.php?gender=male">Download Mr certificate</a>
+                    </div>
+                </div>
             </div>
-            <?php endif; ?>
         <?php endif; ?>
 
-        <?php if ($hasVoted && $submittedScores): ?>
+        <?php if ($hasVoted && $votingMode === 'simple' && $submittedChoices): ?>
+            <div class="card-dark p-4 mt-4">
+                <div class="section-title mb-3">
+                    <span>Your Vote</span>
+                    <h3 class="mb-0">Your submitted choices</h3>
+                </div>
+                <div class="alert alert-secondary mb-3">
+                    <strong>Your ballot:</strong> here is who you chose in every category.
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-striped align-middle">
+                        <thead>
+                            <tr>
+                                <th>Category</th>
+                                <th>Your choice</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($categories as $category): ?>
+                                <?php
+                                $chosenId = $submittedChoices[$category['id']] ?? null;
+                                $chosenName = 'N/A';
+                                foreach ($contestants as $contestant) {
+                                    if ((int) $contestant['id'] === (int) $chosenId) {
+                                        $chosenName = $contestant['name'];
+                                        break;
+                                    }
+                                }
+                                ?>
+                                <tr>
+                                    <td><?php echo h($category['name']); ?></td>
+                                    <td><?php echo h($chosenName); ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        <?php endif; ?>
+
+        <?php if ($hasVoted && $votingMode === 'rating' && $submittedScores): ?>
             <div class="card-dark p-4 mt-4">
                 <div class="section-title mb-3">
                     <span>Your Votes</span>
