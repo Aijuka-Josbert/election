@@ -26,11 +26,13 @@ $hasEnded = $endTime ? $now > $endTime : false;
 // Show results to admins or if results are made public via settings
 $showResults = $isAdmin || $resultsPublic;
 
+$votingMode = get_voting_mode($config);
+
 $categoryScores = [];
 $categoryLeaders = [];
 $overallScores = [];
-$overallScoresByGender = ['male' => [], 'female' => []];
-$overallWinners = ['male' => null, 'female' => null];
+$overallScoresByGender = ['female' => [], 'male' => []];
+$overallWinners = ['female' => null, 'male' => null];
 $maleChartLabels = [];
 $maleChartScores = [];
 $femaleChartLabels = [];
@@ -50,82 +52,56 @@ if ($showResults) {
         $adminTotals['total_voters'] = (int) ($adminTotalsRow['total_voters'] ?? 0);
     }
 
-    // Category-level averages and top contestants per category, separated by gender
-    $categoryScores = $pdo->query(
-        'SELECT c.id AS category_id, c.name AS category_name, c.gender,
-                con.id AS contestant_id, con.name AS contestant_name, con.gender AS contestant_gender, con.photo,
-                AVG(v.score) AS avg_score
-         FROM categories c
-         JOIN votes v ON v.category_id = c.id
-         JOIN contestants con ON con.id = v.contestant_id
-            AND (c.gender = con.gender OR c.gender = "all")
-         GROUP BY c.id, con.id
-         ORDER BY c.id, con.gender, avg_score DESC'
-    )->fetchAll();
+    // Category and overall leaders now come from the same shared, mode-aware
+    // helper vote.php and certificate.php use — previously this page ran its
+    // own third copy of the AVG(score) query, which would have silently
+    // mis-ranked everyone once the simple one-click ballot mode was in use.
+    $board = get_leaderboard($pdo, $votingMode);
+    $categoryLeaders = $board['category_leaders'];
+    $overallWinners = $board['overall_winners'];
+    $overallScores = array_filter($overallWinners); // used below only to gate the "no votes yet" message
 
-    foreach ($categoryScores as $row) {
-        // Create unique key: for "all" categories, separate by contestant gender
-        $categoryId = $row['category_id'];
-        $contestantGender = $row['contestant_gender'] ?? 'male';
-        $categoryGender = $row['gender'] ?? '';
-        
-        if ($categoryGender === 'all') {
-            // For "all" categories, create separate leaders per gender
-            $key = $categoryId . '_' . $contestantGender;
-        } else {
-            // For gender-specific categories, just use category ID
-            $key = $categoryId;
-        }
-        
-        if (!isset($categoryLeaders[$key]) || $row['avg_score'] > $categoryLeaders[$key]['avg_score']) {
-            $categoryLeaders[$key] = $row;
-        }
-    }
-
-    // Overall contestant averages across all categories
-    $overallScores = $pdo->query(
-        'SELECT con.id AS contestant_id, con.name AS contestant_name, con.gender, con.photo,
-                AVG(v.score) AS avg_score
+    // Overall contestant scores per gender, for the top-5 charts.
+    $metricSql = $votingMode === 'simple' ? 'COUNT(v.id)' : 'AVG(v.score)';
+    $overallScoresRows = $pdo->query(
+        "SELECT con.id AS contestant_id, con.name AS contestant_name, con.gender, con.photo,
+                $metricSql AS metric
          FROM contestants con
          JOIN votes v ON v.contestant_id = con.id
          JOIN categories c ON c.id = v.category_id
-         WHERE c.gender = con.gender OR c.gender = "all"
+         WHERE c.gender = con.gender OR c.gender = \"all\"
          GROUP BY con.id, con.gender
-         ORDER BY con.gender, avg_score DESC'
+         ORDER BY con.gender, metric DESC"
     )->fetchAll();
 
-    foreach ($overallScores as $row) {
+    foreach ($overallScoresRows as $row) {
         $gender = $row['gender'] ?? '';
         if (!isset($overallScoresByGender[$gender])) {
             continue;
         }
-
         $overallScoresByGender[$gender][] = $row;
-        if ($overallWinners[$gender] === null) {
-            $overallWinners[$gender] = $row;
-        }
     }
 
     // Prepare top-5 labels and scores per gender.
     foreach (array_slice($overallScoresByGender['male'], 0, 5) as $row) {
         $maleChartLabels[] = $row['contestant_name'];
-        $maleChartScores[] = round((float) $row['avg_score'], 2);
+        $maleChartScores[] = round((float) $row['metric'], 2);
     }
 
     foreach (array_slice($overallScoresByGender['female'], 0, 5) as $row) {
         $femaleChartLabels[] = $row['contestant_name'];
-        $femaleChartScores[] = round((float) $row['avg_score'], 2);
+        $femaleChartScores[] = round((float) $row['metric'], 2);
     }
 
-    // Category-wise average scores for charting, separated by gender for "all" categories
+    // Category-wise scores for charting, separated by gender for "all" categories
     $categoryAvgRows = $pdo->query(
-        'SELECT c.id AS category_id, c.name AS category_name, c.gender, con.gender AS contestant_gender, AVG(v.score) AS avg_score
+        "SELECT c.id AS category_id, c.name AS category_name, c.gender, con.gender AS contestant_gender, $metricSql AS metric
          FROM categories c
          JOIN votes v ON v.category_id = c.id
          JOIN contestants con ON con.id = v.contestant_id
-         WHERE c.gender = con.gender OR c.gender = "all"
+         WHERE c.gender = con.gender OR c.gender = \"all\"
          GROUP BY c.id, con.gender
-         ORDER BY c.gender, c.id, con.gender'
+         ORDER BY c.gender, c.id, con.gender"
     )->fetchAll();
 
     foreach ($categoryAvgRows as $row) {
@@ -141,7 +117,7 @@ if ($showResults) {
         }
         
         $categoryLabels[] = $label;
-        $categoryAverages[] = round((float) $row['avg_score'], 2);
+        $categoryAverages[] = round((float) $row['metric'], 2);
     }
 }
 ?>
@@ -197,13 +173,13 @@ if ($showResults) {
                                     <img class="contestant-img" style="width: 120px; height: 120px;" src="<?php echo h(asset_url($leader['photo'], $config)); ?>" alt="<?php echo h($leader['contestant_name']); ?>">
                                     <div>
                                         <h5 class="mb-1"><?php echo h($leader['contestant_name']); ?></h5>
-                                        <div class="text-muted">Avg score: <?php echo number_format((float) $leader['avg_score'], 2); ?></div>
+                                        <div class="text-muted"><?php echo h(format_leaderboard_metric($leader, $votingMode)); ?></div>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     <?php endforeach; ?>
-                    <?php foreach (['male' => 'Mr UMU Rubaga', 'female' => 'Mrs UMU Rubaga'] as $gender => $title): ?>
+                    <?php foreach (['female' => 'Mrs UMU Rubaga', 'male' => 'Mr UMU Rubaga'] as $gender => $title): ?>
                         <?php $winner = $overallWinners[$gender]; ?>
                         <div class="result-slide">
                             <div class="leader-card winner-spotlight h-100">
@@ -214,7 +190,7 @@ if ($showResults) {
                                         <img class="contestant-img" style="width: 140px; height: 140px;" src="<?php echo h(asset_url($winner['photo'], $config)); ?>" alt="<?php echo h($winner['contestant_name']); ?>">
                                         <div>
                                             <h5 class="mb-1"><i class="bi bi-trophy-fill text-warning"></i> <?php echo h($winner['contestant_name']); ?></h5>
-                                            <div class="text-muted">Average score: <?php echo number_format((float) $winner['avg_score'], 2); ?></div>
+                                            <div class="text-muted"><?php echo h(format_leaderboard_metric($winner, $votingMode)); ?></div>
                                         </div>
                                     </div>
                                 <?php else: ?>
@@ -245,7 +221,7 @@ if ($showResults) {
                                 <img class="contestant-img" style="width: 90px; height: 90px;" src="<?php echo h(asset_url($leader['photo'], $config)); ?>" alt="<?php echo h($leader['contestant_name']); ?>">
                                 <div>
                                     <div class="fw-bold"><?php echo h($leader['contestant_name']); ?></div>
-                                    <small class="text-muted">Avg: <?php echo number_format((float) $leader['avg_score'], 2); ?></small>
+                                    <small class="text-muted"><?php echo h(format_leaderboard_metric($leader, $votingMode)); ?></small>
                                 </div>
                             </div>
                         </div>
@@ -295,11 +271,11 @@ if ($showResults) {
                     $femaleWinner = $overallWinners['female']['contestant_name'] ?? 'TBD';
                     $maleWinner = $overallWinners['male']['contestant_name'] ?? 'TBD';
                     ?>
-                    Congratulations to Mr UMU Rubaga: <?php echo h($maleWinner); ?>, and Mrs UMU Rubaga: <?php echo h($femaleWinner); ?>.
+                    Congratulations to Mrs UMU Rubaga: <?php echo h($femaleWinner); ?>, and Mr UMU Rubaga: <?php echo h($maleWinner); ?>.
                 </p>
                 <div class="d-flex flex-wrap gap-2">
-                    <a class="btn btn-outline-light" href="certificate.php?gender=male">Download Mr certificate</a>
                     <a class="btn btn-outline-light" href="certificate.php?gender=female">Download Mrs certificate</a>
+                    <a class="btn btn-outline-light" href="certificate.php?gender=male">Download Mr certificate</a>
                 </div>
             </div>
         <?php endif; ?>
