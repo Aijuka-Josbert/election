@@ -20,7 +20,9 @@ if (isset($pdo)) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!$settingsWritable) {
+    if (!csrf_verify()) {
+        $errors[] = 'Your session expired. Please try again.';
+    } elseif (!$settingsWritable) {
         $errors[] = 'Settings are locked. Database connection is unavailable.';
     } else {
     $eventDate = trim($_POST['event_date'] ?? '');
@@ -29,6 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $tz = new DateTimeZone($tzName);
     $config['app']['voting_open'] = !empty($_POST['voting_open']);
     $config['app']['results_public'] = !empty($_POST['results_public']);
+    $config['app']['voting_mode'] = ($_POST['voting_mode'] ?? 'rating') === 'simple' ? 'simple' : 'rating';
     $startDate = trim($_POST['voting_start_date'] ?? '');
     $startTime = trim($_POST['voting_start_time'] ?? '');
     $endDate = trim($_POST['voting_end_date'] ?? '');
@@ -63,6 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'voting_open' => !empty($config['app']['voting_open']) ? '1' : '0',
         'voting_start' => $config['app']['voting_start'] ?? '',
         'voting_end' => $config['app']['voting_end'] ?? '',
+        'voting_mode' => $config['app']['voting_mode'] ?? 'rating',
         'results_public' => !empty($config['app']['results_public']) ? '1' : '0',
     ]);
 
@@ -97,49 +101,10 @@ if (!empty($config['app']['event_date'])) {
     $eventTimeValue = substr($config['app']['event_date'], 11, 5);
 }
 
-$statusMessage = 'Voting is disabled by the admin.';
-$statusClass = 'alert-warning';
-$statusOpen = (bool) ($config['app']['voting_open'] ?? false);
-$startValue = $config['app']['voting_start'] ?? '';
-$endValue = $config['app']['voting_end'] ?? '';
-$tzName = $config['app']['timezone'] ?? 'UTC';
-$tz = new DateTimeZone($tzName);
-$now = new DateTime('now', $tz);
-$startTime = $startValue !== '' ? new DateTime($startValue, $tz) : null;
-$endTime = $endValue !== '' ? new DateTime($endValue, $tz) : null;
-
-if ($startTime && $endTime && $endTime <= $startTime) {
-    $endTime = (clone $endTime)->modify('+1 day');
-}
-
-if ($statusOpen) {
-    $statusMessage = 'Voting is enabled and has no time window.';
-    $statusClass = 'alert-success';
-
-    if ($startTime || $endTime) {
-        $isOpenNow = true;
-        if ($startTime && $endTime) {
-            $isOpenNow = $now >= $startTime && $now <= $endTime;
-        } elseif ($startTime) {
-            $isOpenNow = $now >= $startTime;
-        } elseif ($endTime) {
-            $isOpenNow = $now <= $endTime;
-        }
-
-        if ($isOpenNow) {
-            $statusMessage = 'Voting is open now.';
-        } elseif ($startTime && $now < $startTime) {
-            $statusMessage = 'Voting opens on ' . $startTime->format('M d, Y H:i') . ' (' . $tzName . ').';
-            $statusClass = 'alert-warning';
-        } elseif ($endTime && $now > $endTime) {
-            $statusMessage = 'Voting closed on ' . $endTime->format('M d, Y H:i') . ' (' . $tzName . ').';
-            $statusClass = 'alert-warning';
-        } else {
-            $statusMessage = 'Voting is currently closed.';
-            $statusClass = 'alert-warning';
-        }
-    }
-}
+$statusResult = voting_status_message($config);
+$statusMessage = $statusResult['message'];
+$statusClass = $statusResult['open'] ? 'alert-success' : 'alert-warning';
+$votingModeValue = get_voting_mode($config);
 ?>
 <h2 class="mb-4">Voting Settings</h2>
 <?php if ($success): ?>
@@ -165,6 +130,23 @@ if ($statusOpen) {
 <div class="alert <?php echo h($statusClass); ?>"><?php echo h($statusMessage); ?></div>
 <div class="card-dark p-4">
     <form method="post">
+        <?php echo csrf_field(); ?>
+        <div class="mb-4">
+            <label class="form-label d-block">Voting workflow</label>
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="voting_mode" id="voting_mode_rating" value="rating" <?php echo $votingModeValue === 'rating' ? 'checked' : ''; ?>>
+                <label class="form-check-label" for="voting_mode_rating">
+                    <strong>Rating ballot (current)</strong> — voters rate every contestant 1–5 in every category, one submit at the end.
+                </label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="voting_mode" id="voting_mode_simple" value="simple" <?php echo $votingModeValue === 'simple' ? 'checked' : ''; ?>>
+                <label class="form-check-label" for="voting_mode_simple">
+                    <strong>Simple ballot (one-click)</strong> — voters pick one contestant per category and tap "Vote Now" once. No ratings.
+                </label>
+            </div>
+            <small class="text-muted d-block mt-1">Switching this only changes how the ballot is presented — existing votes already cast are not affected or deleted.</small>
+        </div>
         <div class="row g-3 mb-3">
             <div class="col-md-6">
                 <label class="form-label">Event date</label>
