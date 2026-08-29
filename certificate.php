@@ -18,11 +18,16 @@ $endValue = $config['app']['voting_end'] ?? '';
 $startTime = $startValue !== '' ? new DateTime($startValue, $tz) : null;
 $endTime = $endValue !== '' ? new DateTime($endValue, $tz) : null;
 $hasStarted = $startTime ? $now >= $startTime : true;
-$canDownload = $isAdmin;
+$resultsPublic = (bool) ($config['app']['results_public'] ?? false);
+// Matches the visibility rule used by results.php: admins always, everyone
+// else once results have been made public. Previously this was admin-only
+// while results.php and vote.php both rendered a "Download certificate"
+// link for regular voters too — clicking it always hit this 403.
+$canDownload = $isAdmin || $resultsPublic;
 
 if (!$canDownload) {
     http_response_code(403);
-    echo 'Certificates are available to admins only after voting has closed.';
+    echo 'Certificates are available once results are public (or to admins).';
     exit;
 }
 
@@ -33,22 +38,12 @@ if (!in_array($certificateGender, ['male', 'female'], true)) {
     exit;
 }
 
-$winnerStmt = $pdo->prepare(
-    'SELECT con.name AS contestant_name, AVG(v.score) AS avg_score
-     FROM contestants con
-     JOIN votes v ON v.contestant_id = con.id
-     JOIN categories c ON c.id = v.category_id
-     WHERE con.gender = ?
-       AND (c.gender = con.gender OR c.gender = "all")
-     GROUP BY con.id
-     ORDER BY avg_score DESC
-     LIMIT 1'
-);
-$winnerStmt->execute([$certificateGender]);
-$winner = $winnerStmt->fetch();
+$votingMode = get_voting_mode($config);
+$board = get_leaderboard($pdo, $votingMode);
+$winner = $board['overall_winners'][$certificateGender] ?? null;
 
 $winnerName = $winner['contestant_name'] ?? 'TBD';
-$winnerAverage = isset($winner['avg_score']) ? number_format((float) $winner['avg_score'], 2) : 'N/A';
+$winnerScoreLine = $winner ? format_leaderboard_metric($winner, $votingMode) : 'N/A';
 $eventName = $config['app']['event_name'] ?? 'UMU Rubaga Varsity Ball';
 $eventDate = $config['app']['event_date'] ?? '';
 
@@ -70,7 +65,7 @@ $lines = [
     ['text' => '', 'size' => 10, 'x' => 72, 'y' => 690],
     ['text' => strtoupper($titleLabel) . ' WINNER', 'size' => 12, 'x' => 72, 'y' => 670],
     ['text' => $winnerName, 'size' => 22, 'x' => 72, 'y' => 640, 'font' => 'F2'],
-    ['text' => 'Average score: ' . $winnerAverage, 'size' => 12, 'x' => 72, 'y' => 612],
+    ['text' => $winnerScoreLine, 'size' => 12, 'x' => 72, 'y' => 612],
 ];
 
 if ($eventDate !== '') {
@@ -95,7 +90,11 @@ $objects[] = "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n";
 $objects[] = "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R /F2 6 0 R >> >> /Contents 5 0 R >>\nendobj\n";
 $objects[] = "4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n";
 $objects[] = "5 0 obj\n<< /Length " . strlen($content) . " >>\nstream\n" . $content . "endstream\nendobj\n";
-$objects[] = "6 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Stonehenge >>\nendobj\n";
+// Bug fix: this was "/BaseFont /Stonehenge", which is not a real PDF
+// standard font — some PDF viewers rendered the bold heading/name lines
+// as blank or fell back unpredictably. Helvetica-Bold is a guaranteed
+// standard-14 font in every PDF reader.
+$objects[] = "6 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n";
 
 $pdf = "%PDF-1.4\n";
 $offsets = [0];
