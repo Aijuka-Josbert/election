@@ -44,6 +44,9 @@ $votingStatus = voting_status_message($config);
 $votingOpen = $votingStatus['open'];
 $votingStatusMessage = $votingStatus['open'] ? '' : $votingStatus['message'];
 $votingMode = get_voting_mode($config);
+if (isset($pdo)) {
+    ensure_votes_mode_column($pdo);
+}
 
 // Load categories and contestants (limited by config)
 $limit = (int) ($config['app']['category_limit'] ?? 10);
@@ -124,18 +127,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$hasVoted && $votingOpen) {
         if (!$errors) {
             $pdo->beginTransaction();
             try {
-                $insert = $pdo->prepare('INSERT INTO votes (user_id, contestant_id, category_id, score) VALUES (?, ?, ?, 1)');
-                foreach ($choices as $categoryId => $contestantId) {
-                    $insert->execute([$userId, $contestantId, $categoryId]);
-                }
-                $update = $pdo->prepare('UPDATE users SET has_voted = 1 WHERE id = ?');
-                $update->execute([$userId]);
-                $pdo->commit();
+                // Lock this voter's row for the rest of the transaction so a
+                // second concurrent submission (double-click, two tabs, a
+                // network retry) blocks here instead of racing ahead —
+                // without this, two concurrent simple-mode requests could
+                // each pick a *different* contestant in the same category
+                // and both succeed, since they don't collide on the votes
+                // unique key (that key is per contestant, not per category).
+                $lock = $pdo->prepare('SELECT has_voted FROM users WHERE id = ? FOR UPDATE');
+                $lock->execute([$userId]);
+                $lockedRow = $lock->fetch();
 
-                $_SESSION['has_voted'] = 1;
-                $hasVoted = 1;
-                $success = true;
-                $submittedChoices = $choices;
+                if ($lockedRow && (int) $lockedRow['has_voted'] === 1) {
+                    // Another request (already committed) beat us to it.
+                    $pdo->commit();
+                    $_SESSION['has_voted'] = 1;
+                    $hasVoted = 1;
+                    $success = true;
+                } else {
+                    $insert = $pdo->prepare('INSERT INTO votes (user_id, contestant_id, category_id, score, mode) VALUES (?, ?, ?, 1, ?)');
+                    foreach ($choices as $categoryId => $contestantId) {
+                        $insert->execute([$userId, $contestantId, $categoryId, $votingMode]);
+                    }
+                    $update = $pdo->prepare('UPDATE users SET has_voted = 1 WHERE id = ?');
+                    $update->execute([$userId]);
+                    $pdo->commit();
+
+                    $_SESSION['has_voted'] = 1;
+                    $hasVoted = 1;
+                    $success = true;
+                    $submittedChoices = $choices;
+                }
             } catch (PDOException $e) {
                 $pdo->rollBack();
                 // Unique key (user_id, contestant_id, category_id) means this
@@ -171,24 +193,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$hasVoted && $votingOpen) {
         if (!$errors) {
             $pdo->beginTransaction();
             try {
-                $insert = $pdo->prepare('INSERT INTO votes (user_id, contestant_id, category_id, score) VALUES (?, ?, ?, ?)');
-                foreach ($categories as $category) {
-                    foreach (categoryContestantGroups($category) as $groupKey) {
-                        foreach ($contestantsByGender[$groupKey] as $contestant) {
-                            $scoreValue = (int) $_POST['scores'][$category['id']][$contestant['id']];
-                            $insert->execute([$userId, $contestant['id'], $category['id'], $scoreValue]);
+                // Same per-voter row lock as simple mode above — closes the
+                // race where two concurrent requests both pass the earlier
+                // has_voted check and both insert a full ballot.
+                $lock = $pdo->prepare('SELECT has_voted FROM users WHERE id = ? FOR UPDATE');
+                $lock->execute([$userId]);
+                $lockedRow = $lock->fetch();
+
+                if ($lockedRow && (int) $lockedRow['has_voted'] === 1) {
+                    $pdo->commit();
+                    $_SESSION['has_voted'] = 1;
+                    $hasVoted = 1;
+                    $success = true;
+                } else {
+                    $insert = $pdo->prepare('INSERT INTO votes (user_id, contestant_id, category_id, score, mode) VALUES (?, ?, ?, ?, ?)');
+                    foreach ($categories as $category) {
+                        foreach (categoryContestantGroups($category) as $groupKey) {
+                            foreach ($contestantsByGender[$groupKey] as $contestant) {
+                                $scoreValue = (int) $_POST['scores'][$category['id']][$contestant['id']];
+                                $insert->execute([$userId, $contestant['id'], $category['id'], $scoreValue, $votingMode]);
+                            }
                         }
                     }
+
+                    $update = $pdo->prepare('UPDATE users SET has_voted = 1 WHERE id = ?');
+                    $update->execute([$userId]);
+                    $pdo->commit();
+
+                    $_SESSION['has_voted'] = 1;
+                    $hasVoted = 1;
+                    $success = true;
+                    $submittedScores = $_POST['scores'];
                 }
-
-                $update = $pdo->prepare('UPDATE users SET has_voted = 1 WHERE id = ?');
-                $update->execute([$userId]);
-                $pdo->commit();
-
-                $_SESSION['has_voted'] = 1;
-                $hasVoted = 1;
-                $success = true;
-                $submittedScores = $_POST['scores'];
             } catch (PDOException $e) {
                 $pdo->rollBack();
                 // Same double-submit race as above.

@@ -25,6 +25,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif (!$settingsWritable) {
         $errors[] = 'Settings are locked. Database connection is unavailable.';
     } else {
+    // Snapshot before mutation, for the audit log below.
+    $previousVotingMode = $config['app']['voting_mode'] ?? 'rating';
+    $previousVotingOpen = !empty($config['app']['voting_open']);
+    $previousResultsPublic = !empty($config['app']['results_public']);
+
     $eventDate = trim($_POST['event_date'] ?? '');
     $eventTime = trim($_POST['event_time'] ?? '');
     $tzName = $config['app']['timezone'] ?? 'UTC';
@@ -74,6 +79,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = 'Unable to save settings to the database.';
     } else {
         $success = 'Settings updated.';
+
+        // Audit trail for the sensitive toggles — who changed what, when.
+        // Historical votes are never touched by this; get_leaderboard()
+        // filters by each vote's own stamped mode (see includes/helpers.php),
+        // so switching here only changes what NEW ballots look like.
+        $newVotingMode = $config['app']['voting_mode'] ?? 'rating';
+        if ($newVotingMode !== $previousVotingMode) {
+            log_admin_action(
+                $pdo,
+                'voting_mode_changed',
+                "previous_mode={$previousVotingMode} new_mode={$newVotingMode}"
+            );
+        }
+        $newVotingOpen = !empty($config['app']['voting_open']);
+        if ($newVotingOpen !== $previousVotingOpen) {
+            log_admin_action($pdo, 'voting_open_changed', $newVotingOpen ? 'opened' : 'closed');
+        }
+        $newResultsPublic = !empty($config['app']['results_public']);
+        if ($newResultsPublic !== $previousResultsPublic) {
+            log_admin_action($pdo, 'results_public_changed', $newResultsPublic ? 'made public' : 'made private');
+        }
     }
     }
 }
@@ -105,6 +131,13 @@ $statusResult = voting_status_message($config);
 $statusMessage = $statusResult['message'];
 $statusClass = $statusResult['open'] ? 'alert-success' : 'alert-warning';
 $votingModeValue = get_voting_mode($config);
+$votesByMode = $settingsWritable ? vote_counts_by_mode($pdo) : [];
+$otherModeVotes = 0;
+foreach ($votesByMode as $modeKey => $count) {
+    if ($modeKey !== $votingModeValue) {
+        $otherModeVotes += $count;
+    }
+}
 ?>
 <h2 class="mb-4">Voting Settings</h2>
 <?php if ($success): ?>
@@ -146,6 +179,11 @@ $votingModeValue = get_voting_mode($config);
                 </label>
             </div>
             <small class="text-muted d-block mt-1">Switching this only changes how the ballot is presented — existing votes already cast are not affected or deleted.</small>
+            <?php if ($otherModeVotes > 0): ?>
+                <div class="alert alert-warning mt-3 mb-0">
+                    <strong>Heads up:</strong> <?php echo (int) $otherModeVotes; ?> vote row(s) were cast under a different voting mode than the one selected above. They are kept exactly as recorded and are excluded from the current mode's results/leaderboard (each vote remembers the mode it was cast under).
+                </div>
+            <?php endif; ?>
         </div>
         <div class="row g-3 mb-3">
             <div class="col-md-6">
