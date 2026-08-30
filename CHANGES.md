@@ -52,6 +52,62 @@ from-scratch rewrite. Each commit is small and reviewable on its own —
 - Winner announcements and certificate links reordered female-first, then
   male, per the requested order.
 
+**Abuse protection**
+- DB-backed fixed-window rate limiter (`rate_limit_allow()`), atomic
+  across PHP-FPM workers via `ON DUPLICATE KEY UPDATE`, fails open on any
+  DB error. Bucketed by authenticated user id where possible rather than
+  raw IP — voters here are often behind shared campus WiFi NAT. Applied to
+  vote submission, the OAuth callback, and admin settings saves.
+
+**Safe category/contestant deletes**
+- `categories`/`contestants` both had `votes ... ON DELETE CASCADE`
+  foreign keys, so the old hard-delete admin actions would silently wipe
+  historical votes with zero warning. Deletes now check for existing
+  votes first and archive (`active = 0`) instead when any are found; a
+  true hard delete only happens when nothing references the row. Added
+  explicit Archive/Reactivate controls either way.
+- Ballot-building queries in `vote.php` only offer `active = 1`
+  categories/contestants; `get_leaderboard()`/`results.php` deliberately
+  do **not** filter by `active`, so historical results stay correct even
+  after something is archived.
+
+**Ballot secrecy**
+- New admin "Danger zone" action (`admin/settings.php`) nulls out
+  `votes.user_id` for every vote once voting is closed — severs the
+  voter↔choice link permanently with zero effect on tallies (dedup no
+  longer needs that column once voting has ended). Requires typing
+  `ANONYMIZE` to confirm, is logged, and is irreversible by design.
+  Participation (`users.has_voted`) is untouched, so an admin can still
+  see who voted, just not what they chose.
+
+**More bugs found and fixed**
+- Simple-mode ballot: an `all`-gender category rendered male and female
+  contestant lists but every radio shared one `name` attribute, so
+  picking a female contestant silently un-picked whichever male
+  contestant was chosen (and vice versa) — only one winner total could
+  ever be recorded per category, not one per gender. Radios are now
+  scoped per category *and* per gender.
+- `admin/index.php` and `admin/stats.php` each had their own (4th and 5th)
+  independent copy of the AVG(score)-only ranking SQL — now both use the
+  shared `get_leaderboard()` helper, extended to also return full
+  gender-sorted rankings for `stats.php`'s table, not just the #1 leader.
+- `admin/index.php` now shows a clear status strip (voting open/closed +
+  why, active mode, results public/private) — previously gave no
+  indication of either.
+- OAuth login CSRF: `login.php` never set a `state` parameter on the
+  Google authorize URL. Without it, an attacker can capture their own
+  authorization code and trick a victim into visiting
+  `google-callback.php?code=<attacker's code>`, logging the victim in as
+  the attacker. Fixed with a random per-session `state`, verified on
+  return.
+- `display_errors` is now explicitly forced off on the live host
+  regardless of the shared hosting provider's `php.ini` defaults — errors
+  are still logged, never shown to a voter's browser.
+- Neither ballot form disabled its submit button on click, so an
+  impatient double-click fired two overlapping requests (harmless
+  server-side thanks to the row lock above, but confusing UX). Both now
+  disable + relabel the button the instant they're submitted.
+
 **Schema**
 - `database/migrations/2026_08_30_mode_stamping_and_audit.sql` — adds
   `votes.mode` and `admin_audit_log`. Optional to run by hand: the app
@@ -61,12 +117,17 @@ from-scratch rewrite. Each commit is small and reviewable on its own —
 
 ## Deliberately not done in this pass
 
-The scope of a full production rebuild (centralized mode *service* layer,
-route restructuring, rate limiting, ballot-secrecy separation, admin CRUD
-for categories/contestants beyond what already exists, automated test
-suite, full README rewrite) is real but large — flagged here rather than
-claimed as finished. See the conversation this branch came from for the
-prioritized list of what's next.
+The scope of a full production rebuild (centralized mode *service* class
+hierarchy, URL/route restructuring, a full automated test suite, admin
+CRUD for every conceivable election setting, ballot-secrecy beyond the
+anonymization action above) is real but large — flagged here rather than
+claimed as finished.
+
+Both voting modes deliberately share one `vote.php`/`results.php` URL
+rather than getting separate routes — this was a design choice, not an
+oversight: a single mode-aware entry point can't drift out of sync with
+itself the way separate `/vote/rating` and `/vote/simple` routes could if
+one were updated without the other.
 
 ## Operational notes
 

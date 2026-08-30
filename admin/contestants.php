@@ -15,31 +15,55 @@ $activePage = 'contestants';
 $errors = [];
 $success = '';
 $editContestant = null;
+ensure_active_column($pdo, 'contestants');
 
 // Handle create / update / delete actions submitted by the admin form
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!csrf_verify()) {
+        $errors[] = 'Your session expired. Please reload the page and try again.';
+    } else {
     $action = $_POST['action'] ?? 'add';
 
     if ($action === 'delete') {
         // Delete contestant record and remove the photo if it exists under uploads
         $contestantId = (int) ($_POST['contestant_id'] ?? 0);
         if ($contestantId > 0) {
-            $stmt = $pdo->prepare('SELECT photo FROM contestants WHERE id = ?');
-            $stmt->execute([$contestantId]);
-            $contestant = $stmt->fetch();
+            if (has_votes_for($pdo, 'contestant_id', $contestantId)) {
+                // Refuse to hard-delete: contestants.votes has ON DELETE
+                // CASCADE, so this would silently destroy every historical
+                // ballot cast for this contestant. Archive instead.
+                $archive = $pdo->prepare('UPDATE contestants SET active = 0 WHERE id = ?');
+                $archive->execute([$contestantId]);
+                log_admin_action($pdo, 'contestant_archived', "id={$contestantId} reason=has_votes");
+                $success = 'This contestant already has votes recorded, so they were archived (hidden from new ballots) instead of deleted, to protect existing results.';
+            } else {
+                $stmt = $pdo->prepare('SELECT photo FROM contestants WHERE id = ?');
+                $stmt->execute([$contestantId]);
+                $contestant = $stmt->fetch();
 
-            $delete = $pdo->prepare('DELETE FROM contestants WHERE id = ?');
-            $delete->execute([$contestantId]);
+                $delete = $pdo->prepare('DELETE FROM contestants WHERE id = ?');
+                $delete->execute([$contestantId]);
+                log_admin_action($pdo, 'contestant_deleted', "id={$contestantId}");
 
-            if ($contestant && !empty($contestant['photo'])) {
-                $photoPath = realpath(__DIR__ . '/../' . $contestant['photo']);
-                $uploadsPath = realpath($config['uploads']['contestants_dir']);
-                if ($photoPath && $uploadsPath && strpos($photoPath, $uploadsPath) === 0) {
-                    @unlink($photoPath);
+                if ($contestant && !empty($contestant['photo'])) {
+                    $photoPath = realpath(__DIR__ . '/../' . $contestant['photo']);
+                    $uploadsPath = realpath($config['uploads']['contestants_dir']);
+                    if ($photoPath && $uploadsPath && strpos($photoPath, $uploadsPath) === 0) {
+                        @unlink($photoPath);
+                    }
                 }
-            }
 
-            $success = 'Contestant deleted.';
+                $success = 'Contestant deleted.';
+            }
+        }
+    } elseif ($action === 'toggle_active') {
+        $contestantId = (int) ($_POST['contestant_id'] ?? 0);
+        $newActive = (int) ($_POST['new_active'] ?? 0);
+        if ($contestantId > 0) {
+            $toggle = $pdo->prepare('UPDATE contestants SET active = ? WHERE id = ?');
+            $toggle->execute([$newActive ? 1 : 0, $contestantId]);
+            log_admin_action($pdo, $newActive ? 'contestant_reactivated' : 'contestant_archived', "id={$contestantId}");
+            $success = $newActive ? 'Contestant reactivated.' : 'Contestant archived.';
         }
     } elseif ($action === 'update') {
         // Update existing contestant: validate inputs and optional new photo
@@ -121,6 +145,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 $success = 'Contestant updated.';
+                log_admin_action($pdo, 'contestant_updated', "id={$contestantId} name={$name}");
             }
         }
     } else {
@@ -172,11 +197,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $errors[] = 'Unable to save the photo.';
             } else {
                 $photoPath = $config['uploads']['contestants_url'] . '/' . $fileName;
-                $insert = $pdo->prepare('INSERT INTO contestants (name, gender, photo, bio) VALUES (?, ?, ?, ?)');
+                $insert = $pdo->prepare('INSERT INTO contestants (name, gender, photo, bio, active) VALUES (?, ?, ?, ?, 1)');
                 $insert->execute([$name, $gender, $photoPath, $bio ?: null]);
+                log_admin_action($pdo, 'contestant_added', "name={$name} gender={$gender}");
                 $success = 'Contestant added.';
             }
         }
+    }
     }
 }
 
@@ -187,7 +214,7 @@ if ($editId > 0) {
     $editContestant = $editStmt->fetch();
 }
 
-$contestants = $pdo->query('SELECT * FROM contestants ORDER BY gender, name')->fetchAll();
+$contestants = $pdo->query('SELECT * FROM contestants ORDER BY active DESC, gender, name')->fetchAll();
 
 require_once __DIR__ . '/partials/header.php';
 ?>
@@ -207,6 +234,7 @@ require_once __DIR__ . '/partials/header.php';
         <div class="card-dark p-4">
             <h4 class="mb-3">Add Contestant</h4>
             <form method="post" enctype="multipart/form-data">
+                <?php echo csrf_field(); ?>
                 <input type="hidden" name="action" value="<?php echo $editContestant ? 'update' : 'add'; ?>">
                 <?php if ($editContestant): ?>
                     <input type="hidden" name="contestant_id" value="<?php echo (int) $editContestant['id']; ?>">
@@ -251,14 +279,28 @@ require_once __DIR__ . '/partials/header.php';
             <?php else: ?>
                 <div class="row g-3">
                     <?php foreach ($contestants as $contestant): ?>
+                        <?php $isActive = (int) ($contestant['active'] ?? 1) === 1; ?>
                         <div class="col-md-6">
-                            <div class="card-dark p-3 h-100">
+                            <div class="card-dark p-3 h-100"<?php echo $isActive ? '' : ' style="opacity:.6;"'; ?>>
                                 <img class="contestant-img" src="<?php echo h(asset_url($contestant['photo'], $config)); ?>" alt="<?php echo h($contestant['name']); ?>">
                                 <div class="mt-2">
                                     <strong><?php echo h($contestant['name']); ?></strong>
-                                    <div class="text-muted text-uppercase"><?php echo h($contestant['gender']); ?></div>
+                                    <div class="text-muted text-uppercase">
+                                        <?php echo h($contestant['gender']); ?>
+                                        <?php echo $isActive
+                                            ? '<span class="badge bg-success ms-1">Active</span>'
+                                            : '<span class="badge bg-secondary ms-1">Archived</span>'; ?>
+                                    </div>
                                 </div>
-                                <form method="post" class="mt-3">
+                                <form method="post" class="mt-3 d-inline">
+                                    <?php echo csrf_field(); ?>
+                                    <input type="hidden" name="action" value="toggle_active">
+                                    <input type="hidden" name="contestant_id" value="<?php echo (int) $contestant['id']; ?>">
+                                    <input type="hidden" name="new_active" value="<?php echo $isActive ? '0' : '1'; ?>">
+                                    <button class="btn btn-outline-light btn-sm" type="submit"><?php echo $isActive ? 'Archive' : 'Reactivate'; ?></button>
+                                </form>
+                                <form method="post" class="mt-3 d-inline" onsubmit="return confirm('Delete this contestant? If they already have votes they will be archived instead.');">
+                                    <?php echo csrf_field(); ?>
                                     <input type="hidden" name="action" value="delete">
                                     <input type="hidden" name="contestant_id" value="<?php echo (int) $contestant['id']; ?>">
                                     <button class="btn btn-outline-light btn-sm" type="submit">Delete</button>

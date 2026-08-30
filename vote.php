@@ -46,16 +46,21 @@ $votingStatusMessage = $votingStatus['open'] ? '' : $votingStatus['message'];
 $votingMode = get_voting_mode($config);
 if (isset($pdo)) {
     ensure_votes_mode_column($pdo);
+    ensure_active_column($pdo, 'categories');
+    ensure_active_column($pdo, 'contestants');
 }
 
-// Load categories and contestants (limited by config)
+// Load categories and contestants (limited by config). Only active ones —
+// an archived category/contestant (see admin/categories.php,
+// admin/contestants.php) must not be offered on new ballots, even though
+// their historical votes still count correctly in results.
 $limit = (int) ($config['app']['category_limit'] ?? 10);
-$categoriesStmt = $pdo->prepare('SELECT id, name, gender FROM categories ORDER BY id LIMIT ?');
+$categoriesStmt = $pdo->prepare('SELECT id, name, gender FROM categories WHERE active = 1 ORDER BY id LIMIT ?');
 $categoriesStmt->bindValue(1, $limit, PDO::PARAM_INT);
 $categoriesStmt->execute();
 $categories = $categoriesStmt->fetchAll();
 
-$contestants = $pdo->query('SELECT id, name, gender, photo, bio FROM contestants ORDER BY gender, name')->fetchAll();
+$contestants = $pdo->query('SELECT id, name, gender, photo, bio FROM contestants WHERE active = 1 ORDER BY gender, name')->fetchAll();
 
 // Prepare categories steps (each category appears once). Categories with gender 'all' remain a single category.
 // The UI will display both male and female contestants for each category as intended.
@@ -94,6 +99,11 @@ function categoryContestantGroups(array $category): array
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$hasVoted && $votingOpen) {
     if (!csrf_verify()) {
         $errors[] = 'Your session expired or the form was resubmitted. Please reload the page and try again.';
+    } elseif (!rate_limit_allow($pdo, rate_limit_client_bucket('vote_submit'), 8, 60)) {
+        // Generous limit (8/min) — meant to catch scripted flooding, not
+        // ordinary double-clicks. Bucketed per authenticated user id, not
+        // IP, since many voters share campus/hostel WiFi NAT.
+        $errors[] = 'Too many attempts. Please wait a moment and try again.';
     }
 
     // RE-VALIDATE voting time at submission to prevent race conditions
@@ -105,23 +115,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$hasVoted && $votingOpen) {
     }
 
     if (!$errors && $votingMode === 'simple') {
-        // SIMPLE MODE: one chosen contestant per category.
+        // SIMPLE MODE: one chosen contestant per category, per gender
+        // group. For a gender-specific category that's one pick; for an
+        // 'all' category (e.g. "Best Dressed") that's one male pick AND
+        // one female pick — mirroring rating mode, where every contestant
+        // of both genders gets rated independently in an 'all' category.
         $choices = [];
         foreach ($categories as $category) {
-            $groups = categoryContestantGroups($category);
-            $eligibleIds = [];
-            foreach ($groups as $groupKey) {
-                foreach ($contestantsByGender[$groupKey] as $contestant) {
-                    $eligibleIds[] = (int) $contestant['id'];
+            foreach (categoryContestantGroups($category) as $groupKey) {
+                $eligibleIds = array_map(
+                    fn($c) => (int) $c['id'],
+                    $contestantsByGender[$groupKey]
+                );
+                if (!$eligibleIds) {
+                    continue;
                 }
-            }
 
-            $chosenId = $_POST['choices'][$category['id']] ?? null;
-            if ($chosenId === null || !is_numeric($chosenId) || !in_array((int) $chosenId, $eligibleIds, true)) {
-                $errors[] = 'Please choose one contestant in every category.';
-                break;
+                $chosenId = $_POST['choices'][$category['id']][$groupKey] ?? null;
+                if ($chosenId === null || !is_numeric($chosenId) || !in_array((int) $chosenId, $eligibleIds, true)) {
+                    $errors[] = 'Please choose one contestant per gender in every category.';
+                    break 2;
+                }
+                $choices[$category['id']][$groupKey] = (int) $chosenId;
             }
-            $choices[$category['id']] = (int) $chosenId;
         }
 
         if (!$errors) {
@@ -146,8 +162,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$hasVoted && $votingOpen) {
                     $success = true;
                 } else {
                     $insert = $pdo->prepare('INSERT INTO votes (user_id, contestant_id, category_id, score, mode) VALUES (?, ?, ?, 1, ?)');
-                    foreach ($choices as $categoryId => $contestantId) {
-                        $insert->execute([$userId, $contestantId, $categoryId, $votingMode]);
+                    foreach ($choices as $categoryId => $genderChoices) {
+                        foreach ($genderChoices as $contestantId) {
+                            $insert->execute([$userId, $contestantId, $categoryId, $votingMode]);
+                        }
                     }
                     $update = $pdo->prepare('UPDATE users SET has_voted = 1 WHERE id = ?');
                     $update->execute([$userId]);
@@ -494,7 +512,7 @@ if ($showWinners) {
                                                         type="radio"
                                                         class="choice-input"
                                                         id="<?php echo h($choiceId); ?>"
-                                                        name="choices[<?php echo (int) $category['id']; ?>]"
+                                                        name="choices[<?php echo (int) $category['id']; ?>][<?php echo h($section['key']); ?>]"
                                                         value="<?php echo (int) $contestant['id']; ?>"
                                                         required
                                                         style="width: 20px; height: 20px; flex-shrink: 0;"
@@ -642,18 +660,20 @@ if ($showWinners) {
                         <tbody>
                             <?php foreach ($categories as $category): ?>
                                 <?php
-                                $chosenId = $submittedChoices[$category['id']] ?? null;
-                                $chosenName = 'N/A';
-                                foreach ($contestants as $contestant) {
-                                    if ((int) $contestant['id'] === (int) $chosenId) {
-                                        $chosenName = $contestant['name'];
-                                        break;
+                                $genderChoices = $submittedChoices[$category['id']] ?? [];
+                                $chosenNames = [];
+                                foreach ($genderChoices as $chosenId) {
+                                    foreach ($contestants as $contestant) {
+                                        if ((int) $contestant['id'] === (int) $chosenId) {
+                                            $chosenNames[] = $contestant['name'];
+                                            break;
+                                        }
                                     }
                                 }
                                 ?>
                                 <tr>
                                     <td><?php echo h($category['name']); ?></td>
-                                    <td><?php echo h($chosenName); ?></td>
+                                    <td><?php echo h($chosenNames ? implode(' & ', $chosenNames) : 'N/A'); ?></td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>

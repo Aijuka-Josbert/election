@@ -243,6 +243,35 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    // Double-submission UX guard: disable the submit button and show a
+    // "please wait" state the instant either ballot form is submitted, so
+    // an impatient double-click doesn't fire two overlapping requests. The
+    // server already makes duplicate submissions harmless on its own (see
+    // vote.php's per-voter row lock) — this is purely about not confusing
+    // the voter with a second, redundant page load while the first request
+    // is still in flight.
+    const guardAgainstDoubleSubmit = (form, submitButtonSelector, waitingText) => {
+        if (!form) {
+            return;
+        }
+        form.addEventListener("submit", (event) => {
+            const btn = form.querySelector(submitButtonSelector);
+            if (btn && btn.dataset.submitting === "true") {
+                // Already submitting — this is a second submit event
+                // (e.g. Enter key + click), block it client-side too.
+                event.preventDefault();
+                return;
+            }
+            if (btn) {
+                btn.dataset.submitting = "true";
+                btn.disabled = true;
+                btn.textContent = waitingText;
+            }
+        });
+    };
+    guardAgainstDoubleSubmit(document.getElementById("voteForm"), "#submitVoteBtn", "Submitting your vote…");
+    guardAgainstDoubleSubmit(document.getElementById("simpleVoteForm"), "button[type=submit]", "Submitting your vote…");
+
     const countdown = document.getElementById("countdown");
     const eventDate = countdown?.dataset?.eventDate;
 

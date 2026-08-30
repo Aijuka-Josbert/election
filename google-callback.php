@@ -17,6 +17,29 @@ if (empty($_GET['code'])) {
     exit;
 }
 
+// Verify the `state` value round-tripped from login.php matches this
+// session — see the comment there. A missing/mismatched state means this
+// request didn't originate from our own login.php redirect.
+$stateOk = !empty($_GET['state']) && !empty($_SESSION['oauth_state'])
+    && hash_equals($_SESSION['oauth_state'], (string) $_GET['state']);
+unset($_SESSION['oauth_state']); // one-time use regardless of outcome
+
+if (!$stateOk) {
+    http_response_code(400);
+    echo 'This login request could not be verified. Please start over from the login page.';
+    exit;
+}
+
+// IP-based here (no authenticated user yet at this point in the flow).
+// Generous limit — this only guards against garbage/replayed `code`
+// values being hammered against Google's token endpoint, not against
+// normal login traffic.
+if (!rate_limit_allow($pdo, rate_limit_client_bucket('oauth_callback'), 20, 60)) {
+    http_response_code(429);
+    echo 'Too many login attempts. Please wait a moment and try again.';
+    exit;
+}
+
 // Exchange code for token
 $client = new Google_Client();
 $client->setClientId($config['google']['client_id']);

@@ -170,6 +170,58 @@ function ensure_votes_mode_column(PDO $pdo): void
 }
 
 /**
+ * Adds an `active` (soft-delete) flag to categories/contestants if it
+ * isn't there yet — same self-healing pattern as the other ensure_*()
+ * helpers. This exists because categories/contestants currently have
+ * `votes ... ON DELETE CASCADE` foreign keys: hard-deleting a category or
+ * contestant that already has votes silently destroys those historical
+ * ballots with no warning. See safe_delete_category()/safe_delete_contestant().
+ */
+function ensure_active_column(PDO $pdo, string $table): void
+{
+    static $checked = [];
+    if (!empty($checked[$table])) {
+        return;
+    }
+
+    // Defensive whitelist even though every current call site passes a
+    // hardcoded literal — this function interpolates $table directly into
+    // DDL, so if a future caller ever passes anything derived from user
+    // input, this is what stops it from becoming a SQL injection vector.
+    $allowedTables = ['categories', 'contestants'];
+    if (!in_array($table, $allowedTables, true)) {
+        throw new InvalidArgumentException('Invalid table for ensure_active_column()');
+    }
+
+    $stmt = $pdo->prepare(
+        "SELECT COUNT(*) FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = 'active'"
+    );
+    $stmt->execute([$table]);
+    if ((int) $stmt->fetchColumn() === 0) {
+        $pdo->exec("ALTER TABLE `$table` ADD COLUMN active TINYINT(1) NOT NULL DEFAULT 1");
+    }
+
+    $checked[$table] = true;
+}
+
+/**
+ * True if this category/contestant already has at least one vote recorded
+ * against it — the deciding factor for whether a delete request is safe to
+ * perform as a hard DELETE or must be downgraded to an archive (active=0).
+ */
+function has_votes_for(PDO $pdo, string $column, int $id): bool
+{
+    $allowed = ['category_id', 'contestant_id'];
+    if (!in_array($column, $allowed, true)) {
+        throw new InvalidArgumentException('Invalid column for has_votes_for()');
+    }
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM votes WHERE $column = ?");
+    $stmt->execute([$id]);
+    return ((int) $stmt->fetchColumn()) > 0;
+}
+
+/**
  * Minimal admin audit log — who changed what, when. Covers the sensitive
  * admin actions this app actually has today (voting mode, voting window,
  * results visibility); extend the $action set as more admin actions need
@@ -448,9 +500,14 @@ function get_leaderboard(PDO $pdo, string $mode): array
     // Female first, then male — matches the announcement order requested for
     // the results/winners screens.
     $overallWinners = ['female' => null, 'male' => null];
+    $overallAll = ['female' => [], 'male' => []];
     foreach ($overallRows as $row) {
         $gender = $row['gender'] ?? '';
-        if (($gender === 'male' || $gender === 'female') && $overallWinners[$gender] === null) {
+        if ($gender !== 'male' && $gender !== 'female') {
+            continue;
+        }
+        $overallAll[$gender][] = $row;
+        if ($overallWinners[$gender] === null) {
             $overallWinners[$gender] = $row;
         }
     }
@@ -459,6 +516,9 @@ function get_leaderboard(PDO $pdo, string $mode): array
         'mode' => $mode,
         'category_leaders' => $categoryLeaders,
         'overall_winners' => $overallWinners,
+        // Full gender-sorted rankings (not just the #1 leader) — used by
+        // admin/stats.php's "Overall Rankings" table.
+        'overall_all' => $overallAll,
     ];
 }
 
@@ -520,4 +580,120 @@ function csrf_verify(): bool
     $token = $_POST['csrf_token'] ?? '';
     return is_string($token) && $token !== '' && !empty($_SESSION['csrf_token'])
         && hash_equals($_SESSION['csrf_token'], $token);
+}
+
+/**
+ * Fixed-window rate limiter backed by a MySQL upsert (ON DUPLICATE KEY
+ * UPDATE is atomic), so it works correctly across multiple PHP-FPM workers
+ * without needing shared memory, APCu or Redis. Fails OPEN on any DB
+ * error — a rate-limiter outage must never be the reason a legitimate vote
+ * gets rejected.
+ *
+ * Deliberately NOT purely IP-based for authenticated actions: voters here
+ * are university students who are often behind the same campus/hostel
+ * WiFi NAT, so a strict per-IP limit could lock out an entire dorm's worth
+ * of legitimate voters. Callers should bucket by user id wherever the
+ * action is already authenticated (see rate_limit_client_bucket()).
+ */
+function ensure_rate_limits_table(PDO $pdo): void
+{
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS rate_limits (\n"
+        . "rl_key VARCHAR(191) PRIMARY KEY,\n"
+        . "hit_count INT UNSIGNED NOT NULL DEFAULT 0,\n"
+        . "expires_at DATETIME NOT NULL,\n"
+        . "INDEX idx_rate_limits_expires (expires_at)\n"
+        . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+    );
+}
+
+function rate_limit_allow(PDO $pdo, string $bucket, int $maxHits, int $windowSeconds): bool
+{
+    try {
+        ensure_rate_limits_table($pdo);
+        $windowId = intdiv(time(), $windowSeconds);
+        $key = $bucket . ':' . $windowId;
+        $expiresAt = date('Y-m-d H:i:s', ($windowId + 1) * $windowSeconds);
+
+        $stmt = $pdo->prepare(
+            'INSERT INTO rate_limits (rl_key, hit_count, expires_at) VALUES (?, 1, ?)
+             ON DUPLICATE KEY UPDATE hit_count = hit_count + 1'
+        );
+        $stmt->execute([$key, $expiresAt]);
+
+        $check = $pdo->prepare('SELECT hit_count FROM rate_limits WHERE rl_key = ?');
+        $check->execute([$key]);
+        $hitCount = (int) $check->fetchColumn();
+
+        // Opportunistic cleanup instead of a cron job — cheap, and only
+        // needs to happen occasionally.
+        if (random_int(1, 50) === 1) {
+            $pdo->exec('DELETE FROM rate_limits WHERE expires_at < NOW()');
+        }
+    } catch (PDOException $e) {
+        return true;
+    }
+
+    if ($hitCount > $maxHits) {
+        log_admin_action($pdo, 'rate_limit_blocked', "bucket={$bucket} hits={$hitCount}");
+        return false;
+    }
+
+    return true;
+}
+
+/** Bucket a rate limit by authenticated user id when available, else by IP. */
+function rate_limit_client_bucket(string $prefix): string
+{
+    if (!empty($_SESSION['user_id'])) {
+        return $prefix . ':user:' . $_SESSION['user_id'];
+    }
+    return $prefix . ':ip:' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+}
+
+/**
+ * Ballot secrecy: votes.user_id starts out NOT NULL because the one-vote-
+ * per-user guarantee (the unique key + the FOR UPDATE lock in vote.php)
+ * needs it while voting is open. Once voting has closed, that dedup need
+ * is gone — nothing about correct tallying requires knowing WHO cast a
+ * given vote, only THAT it was cast. anonymize_ballots() severs that link
+ * (SET user_id = NULL) without touching scores/contestants/categories, so
+ * results stay byte-for-byte identical while the voter↔choice mapping
+ * that a raw DB query could otherwise reconstruct is gone for good.
+ *
+ * Participation (users.has_voted) is untouched by this — an admin can
+ * still see WHO voted, just not WHAT they chose, matching the "don't
+ * casually expose voter -> choice" principle without pretending this
+ * project can offer cryptographic ballot secrecy.
+ */
+function ensure_votes_user_id_nullable(PDO $pdo): void
+{
+    static $checked = false;
+    if ($checked) {
+        return;
+    }
+
+    $stmt = $pdo->query(
+        "SELECT IS_NULLABLE FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'votes' AND COLUMN_NAME = 'user_id'"
+    );
+    if ($stmt->fetchColumn() === 'NO') {
+        $pdo->exec('ALTER TABLE votes MODIFY user_id INT NULL');
+    }
+
+    $checked = true;
+}
+
+/**
+ * Irreversibly severs votes.user_id for every already-cast vote. Caller is
+ * responsible for confirming with the admin and for only allowing this
+ * once voting is closed (see admin/settings.php). Returns the number of
+ * rows anonymized.
+ */
+function anonymize_ballots(PDO $pdo): int
+{
+    ensure_votes_user_id_nullable($pdo);
+    $stmt = $pdo->prepare('UPDATE votes SET user_id = NULL WHERE user_id IS NOT NULL');
+    $stmt->execute();
+    return $stmt->rowCount();
 }

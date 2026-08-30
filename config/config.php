@@ -11,6 +11,23 @@ $host = $_SERVER['HTTP_HOST'] ?? '';
 $isLive = strpos($host, 'umuelections.fwh.is') !== false;
 
 /*
+ * SECURITY: never trust the hosting provider's php.ini defaults for this.
+ * Shared/free hosts (this app's config below shows one) commonly ship with
+ * display_errors=On, which would print raw file paths, SQL fragments, and
+ * stack traces straight into a voter's browser on any uncaught error. Force
+ * it off on the live host regardless of php.ini; keep it on for local dev
+ * so mistakes are visible while building. Errors are still logged either
+ * way, just never displayed to the person seeing the page.
+ */
+error_reporting(E_ALL);
+ini_set('log_errors', '1');
+if ($isLive) {
+    ini_set('display_errors', '0');
+} else {
+    ini_set('display_errors', '1');
+}
+
+/*
  * SECURITY: real credentials must never live in this tracked file — this
  * repo is public on GitHub. Every value below is a safe placeholder that
  * only works together with config/config.local.php (untracked, see
@@ -79,7 +96,7 @@ $config = [
     ],
 ];
 
-$configLocalPath = __DIR__ . '/config.local.php';
+$configLocalPath = __DIR__ . '/.env';
 if (is_file($configLocalPath)) {
     $localConfig = require $configLocalPath;
     if (is_array($localConfig)) {

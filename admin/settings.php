@@ -19,11 +19,27 @@ if (isset($pdo)) {
     $config = apply_app_settings($config, $pdo);
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'anonymize_ballots') {
     if (!csrf_verify()) {
         $errors[] = 'Your session expired. Please try again.';
     } elseif (!$settingsWritable) {
         $errors[] = 'Settings are locked. Database connection is unavailable.';
+    } elseif (!empty($config['app']['voting_open'] ?? false)) {
+        $errors[] = 'Close voting before anonymizing ballots — dedup protection still needs the voter link while voting is open.';
+    } elseif (($_POST['confirm_anonymize'] ?? '') !== 'ANONYMIZE') {
+        $errors[] = 'Type ANONYMIZE exactly to confirm this irreversible action.';
+    } else {
+        $rowsAffected = anonymize_ballots($pdo);
+        log_admin_action($pdo, 'ballots_anonymized', "rows_affected={$rowsAffected}");
+        $success = "Done — {$rowsAffected} vote row(s) had their voter link removed. Results are unaffected; this cannot be undone.";
+    }
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!csrf_verify()) {
+        $errors[] = 'Your session expired. Please try again.';
+    } elseif (!$settingsWritable) {
+        $errors[] = 'Settings are locked. Database connection is unavailable.';
+    } elseif (!rate_limit_allow($pdo, rate_limit_client_bucket('admin_settings'), 30, 60)) {
+        $errors[] = 'Too many attempts. Please wait a moment and try again.';
     } else {
     // Snapshot before mutation, for the audit log below.
     $previousVotingMode = $config['app']['voting_mode'] ?? 'rating';
@@ -224,5 +240,27 @@ foreach ($votesByMode as $modeKey => $count) {
         </div>
         <button class="btn btn-primary mt-4" type="submit" <?php echo !$settingsWritable ? 'disabled' : ''; ?>>Save Settings</button>
     </form>
+</div>
+
+<div class="card-dark p-4 mt-4" style="border: 1px solid rgba(220,53,69,.4);">
+    <h4 class="mb-2 text-danger">Danger zone — anonymize ballots</h4>
+    <p class="text-muted mb-3">
+        Removes the link between each recorded vote and the voter who cast it, without changing any score, contestant,
+        or category — results and leaderboards are completely unaffected. Only available once voting is closed, since
+        dedup protection while voting is open still needs that link. <strong>This cannot be undone.</strong>
+    </p>
+    <?php if (!empty($config['app']['voting_open'] ?? false)): ?>
+        <div class="alert alert-secondary mb-0">Close voting first to enable this.</div>
+    <?php else: ?>
+        <form method="post" onsubmit="return confirm('This permanently removes the voter link from every vote. Results are unaffected, but this cannot be undone. Continue?');">
+            <?php echo csrf_field(); ?>
+            <input type="hidden" name="action" value="anonymize_ballots">
+            <div class="mb-3" style="max-width: 320px;">
+                <label class="form-label">Type ANONYMIZE to confirm</label>
+                <input class="form-control" type="text" name="confirm_anonymize" autocomplete="off" required>
+            </div>
+            <button class="btn btn-outline-danger" type="submit" <?php echo !$settingsWritable ? 'disabled' : ''; ?>>Anonymize all ballots</button>
+        </form>
+    <?php endif; ?>
 </div>
 <?php require_once __DIR__ . '/partials/footer.php'; ?>

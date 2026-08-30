@@ -10,6 +10,9 @@ $success = '';
 $errors = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!csrf_verify()) {
+        $errors[] = 'Your session expired. Please reload the page and try again.';
+    } else {
     $action = $_POST['action'] ?? '';
     if ($action === 'delete') {
         $userId = (int) ($_POST['user_id'] ?? 0);
@@ -17,11 +20,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $delete = $pdo->prepare('DELETE FROM users WHERE id = ? AND has_voted = 0');
             $delete->execute([$userId]);
             if ($delete->rowCount() > 0) {
+                log_admin_action($pdo, 'user_deleted', "id={$userId}");
                 $success = 'User removed.';
             } else {
                 $errors[] = 'Unable to delete user. They may have voted already.';
             }
         }
+    }
     }
 }
 
@@ -68,6 +73,7 @@ require_once __DIR__ . '/partials/header.php';
                             <td><?php echo h($user['created_at']); ?></td>
                             <td class="text-end">
                                 <form method="post">
+                                    <?php echo csrf_field(); ?>
                                     <input type="hidden" name="action" value="delete">
                                     <input type="hidden" name="user_id" value="<?php echo (int) $user['id']; ?>">
                                     <button class="btn btn-outline-light btn-sm" type="submit">Delete</button>
