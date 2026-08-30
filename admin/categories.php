@@ -3,12 +3,17 @@ require_once __DIR__ . '/../includes/admin_auth.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/helpers.php';
 
-$pageTitle = 'Manage Categories - UMU Varsity Ball';
+$pageTitle = 'Manage Categories';
 $activePage = 'categories';
 
 $errors = [];
 $success = '';
+$editCategory = null;
 ensure_active_column($pdo, 'categories');
+// Widens categories.gender to actually allow 'all' — see the doc comment
+// on this function for why this matters: without it, any category meant
+// to apply to both genders silently shows nobody at all.
+ensure_category_gender_enum($pdo);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!csrf_verify()) {
@@ -44,6 +49,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             log_admin_action($pdo, $newActive ? 'category_reactivated' : 'category_archived', "id={$categoryId}");
             $success = $newActive ? 'Category reactivated.' : 'Category archived.';
         }
+    } elseif ($action === 'update') {
+        $categoryId = (int) ($_POST['category_id'] ?? 0);
+        $name = trim($_POST['name'] ?? '');
+        $gender = $_POST['gender'] ?? '';
+
+        if ($categoryId <= 0) {
+            $errors[] = 'Invalid category selected.';
+        }
+        if ($name === '') {
+            $errors[] = 'Category name is required.';
+        }
+        if (!in_array($gender, ['male', 'female', 'all'], true)) {
+            $errors[] = 'Select a valid gender.';
+        }
+
+        if (!$errors) {
+            $update = $pdo->prepare('UPDATE categories SET name = ?, gender = ? WHERE id = ?');
+            $update->execute([$name, $gender, $categoryId]);
+            log_admin_action($pdo, 'category_updated', "id={$categoryId} name={$name} gender={$gender}");
+            $success = 'Category updated.';
+        }
     } else {
         $name = trim($_POST['name'] ?? '');
         $gender = $_POST['gender'] ?? '';
@@ -66,6 +92,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+$editId = (int) ($_GET['edit'] ?? 0);
+if ($editId > 0) {
+    $editStmt = $pdo->prepare('SELECT * FROM categories WHERE id = ?');
+    $editStmt->execute([$editId]);
+    $editCategory = $editStmt->fetch();
+}
+
 $categories = $pdo->query('SELECT * FROM categories ORDER BY active DESC, gender, name')->fetchAll();
 
 require_once __DIR__ . '/partials/header.php';
@@ -84,24 +117,31 @@ require_once __DIR__ . '/partials/header.php';
 <div class="row g-4">
     <div class="col-lg-5">
         <div class="card-dark p-4">
-            <h4 class="mb-3">Add Category</h4>
+            <h4 class="mb-3"><?php echo $editCategory ? 'Edit Category' : 'Add Category'; ?></h4>
             <form method="post">
                 <?php echo csrf_field(); ?>
-                <input type="hidden" name="action" value="add">
+                <input type="hidden" name="action" value="<?php echo $editCategory ? 'update' : 'add'; ?>">
+                <?php if ($editCategory): ?>
+                    <input type="hidden" name="category_id" value="<?php echo (int) $editCategory['id']; ?>">
+                <?php endif; ?>
                 <div class="mb-3">
                     <label class="form-label">Category name</label>
-                    <input class="form-control" type="text" name="name" required>
+                    <input class="form-control" type="text" name="name" value="<?php echo h($editCategory['name'] ?? ''); ?>" required>
                 </div>
                 <div class="mb-3">
                     <label class="form-label">Gender</label>
+                    <?php $currentGender = $editCategory ? normalize_category_gender($editCategory['gender'] ?? null) : ''; ?>
                     <select class="form-select" name="gender" required>
                         <option value="">Select gender</option>
-                        <option value="male">Male</option>
-                        <option value="female">Female</option>
-                        <option value="all">All (for categories that apply to all contestants)</option>
+                        <option value="male" <?php echo $currentGender === 'male' ? 'selected' : ''; ?>>Male</option>
+                        <option value="female" <?php echo $currentGender === 'female' ? 'selected' : ''; ?>>Female</option>
+                        <option value="all" <?php echo $currentGender === 'all' ? 'selected' : ''; ?>>All (for categories that apply to all contestants)</option>
                     </select>
                 </div>
-                <button class="btn btn-primary" type="submit">Save Category</button>
+                <button class="btn btn-primary" type="submit"><?php echo $editCategory ? 'Save Changes' : 'Save Category'; ?></button>
+                <?php if ($editCategory): ?>
+                    <a class="btn btn-outline-light" href="categories.php">Cancel</a>
+                <?php endif; ?>
             </form>
         </div>
     </div>
@@ -123,16 +163,27 @@ require_once __DIR__ . '/partials/header.php';
                         </thead>
                         <tbody>
                             <?php foreach ($categories as $category): ?>
-                                <?php $isActive = (int) ($category['active'] ?? 1) === 1; ?>
+                                <?php
+                                $isActive = (int) ($category['active'] ?? 1) === 1;
+                                $rawGender = (string) ($category['gender'] ?? '');
+                                $isCorrupted = !in_array($rawGender, ['male', 'female', 'all'], true);
+                                ?>
                                 <tr<?php echo $isActive ? '' : ' style="opacity:.6;"'; ?>>
                                     <td><?php echo h($category['name']); ?></td>
-                                    <td><?php echo h($category['gender']); ?></td>
+                                    <td>
+                                        <?php if ($isCorrupted): ?>
+                                            <span class="badge bg-danger" title="This category's gender value is not a recognized male/female/all — currently treated as 'all' (inclusive) by the app, but click Edit and re-save to fix it properly.">⚠ unrecognized (treated as All)</span>
+                                        <?php else: ?>
+                                            <?php echo h($rawGender); ?>
+                                        <?php endif; ?>
+                                    </td>
                                     <td>
                                         <?php echo $isActive
                                             ? '<span class="badge bg-success">Active</span>'
                                             : '<span class="badge bg-secondary">Archived</span>'; ?>
                                     </td>
                                     <td class="text-end">
+                                        <a class="btn btn-outline-light btn-sm" href="categories.php?edit=<?php echo (int) $category['id']; ?>">Edit</a>
                                         <form method="post" class="d-inline">
                                             <?php echo csrf_field(); ?>
                                             <input type="hidden" name="action" value="toggle_active">

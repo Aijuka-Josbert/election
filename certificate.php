@@ -39,6 +39,9 @@ if (!in_array($certificateGender, ['male', 'female'], true)) {
 }
 
 $votingMode = get_voting_mode($config);
+if (isset($pdo)) {
+    ensure_category_gender_enum($pdo);
+}
 $board = get_leaderboard($pdo, $votingMode);
 $winner = $board['overall_winners'][$certificateGender] ?? null;
 
@@ -47,7 +50,7 @@ $winnerScoreLine = $winner ? format_leaderboard_metric($winner, $votingMode) : '
 $eventName = $config['app']['event_name'] ?? 'UMU Rubaga Varsity Ball';
 $eventDate = $config['app']['event_date'] ?? '';
 
-$titleLabel = $certificateGender === 'male' ? 'Mr UMU Rubaga' : 'Mrs UMU Rubaga';
+$titleLabel = $certificateGender === 'male' ? site_male_title($config) : site_female_title($config);
 $certificateHeading = $certificateGender === 'male'
     ? 'Certificate of Appreciation - Male Winner'
     : 'Certificate of Appreciation - Female Winner';

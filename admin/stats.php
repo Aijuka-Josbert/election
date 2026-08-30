@@ -7,10 +7,13 @@ if (isset($pdo)) {
     $config = apply_app_settings($config, $pdo);
 }
 
-$pageTitle = 'Voting Stats - UMU Varsity Ball';
+$pageTitle = 'Voting Stats';
 $activePage = 'stats';
 
 $votingMode = get_voting_mode($config);
+if (isset($pdo)) {
+    ensure_category_gender_enum($pdo);
+}
 // Mode-aware — this page used to run its own 5th independent copy of the
 // AVG(score)-only ranking SQL (vote.php, results.php, certificate.php and
 // admin/index.php each had their own before this branch). Now uses the
@@ -28,7 +31,7 @@ $categoriesList = $pdo->query('SELECT id, name, gender FROM categories ORDER BY 
 $categoryLeaders = [];
 foreach ($categoriesList as $category) {
     $categoryId = $category['id'];
-    $categoryGender = $category['gender'] ?? 'all';
+    $categoryGender = normalize_category_gender($category['gender'] ?? null);
 
     $maleLeader = null;
     $femaleLeader = null;

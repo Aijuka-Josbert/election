@@ -3,7 +3,7 @@ require_once __DIR__ . '/../includes/admin_auth.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/helpers.php';
 
-$pageTitle = 'Users - UMU Varsity Ball';
+$pageTitle = 'Users';
 $activePage = 'users';
 
 $success = '';

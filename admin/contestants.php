@@ -9,7 +9,7 @@ require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/helpers.php';
 $config = require __DIR__ . '/../config/config.php';
 
-$pageTitle = 'Manage Contestants - UMU Varsity Ball';
+$pageTitle = 'Manage Contestants';
 $activePage = 'contestants';
 
 $errors = [];

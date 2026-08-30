@@ -10,6 +10,76 @@ function h(string $value): string
     return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
 }
 
+/**
+ * Branding helpers — every value here is admin-editable (Admin ->
+ * Settings -> Branding) and stored in app_settings like every other
+ * runtime setting, via the existing generic save_app_settings()/
+ * apply_app_settings() mechanism (no per-field plumbing needed there —
+ * any key saved flows straight into $config['app'][key]). This is what
+ * makes the project "open": the event name, tagline, logo and color
+ * scheme are never hardcoded, so this codebase can be reused for a
+ * different election by an admin who has never touched PHP.
+ */
+function site_name(array $config): string
+{
+    $name = trim((string) ($config['app']['event_name'] ?? ''));
+    return $name !== '' ? $name : 'Election';
+}
+
+function site_tagline(array $config): string
+{
+    return trim((string) ($config['app']['event_tagline'] ?? ''));
+}
+
+function site_logo_url(array $config): string
+{
+    $logo = trim((string) ($config['app']['logo_url'] ?? ''));
+    return $logo !== '' ? $logo : asset_url('assets/images/Untitled.jpeg', $config);
+}
+
+function site_primary_color(array $config): string
+{
+    $color = trim((string) ($config['app']['theme_primary_color'] ?? ''));
+    return $color !== '' && preg_match('/^#[0-9a-fA-F]{6}$/', $color) ? $color : '#c8102e';
+}
+
+function site_accent_color(array $config): string
+{
+    $color = trim((string) ($config['app']['theme_accent_color'] ?? ''));
+    return $color !== '' && preg_match('/^#[0-9a-fA-F]{6}$/', $color) ? $color : '#c9a227';
+}
+
+/**
+ * Contest titles ("Mr UMU Rubaga" / "Mrs UMU Rubaga") — admin-editable so
+ * this codebase can be reused for a differently-named contest (e.g.
+ * "Mr & Miss Freshers", "King & Queen of the Ball") without touching PHP.
+ */
+function site_male_title(array $config): string
+{
+    $title = trim((string) ($config['app']['male_title'] ?? ''));
+    return $title !== '' ? $title : 'Mr UMU Rubaga';
+}
+
+function site_female_title(array $config): string
+{
+    $title = trim((string) ($config['app']['female_title'] ?? ''));
+    return $title !== '' ? $title : 'Mrs UMU Rubaga';
+}
+
+/**
+ * Inline <style> block overriding the CSS custom properties style.css is
+ * already built on (--umu-red, --umu-gold) with the admin's chosen
+ * colors. Kept as a tiny, isolated override rather than editing
+ * style.css itself, so the stylesheet stays cacheable and the override
+ * is easy to reason about.
+ */
+function site_theme_style_tag(array $config): string
+{
+    $primary = site_primary_color($config);
+    $accent = site_accent_color($config);
+    return '<style>:root{--umu-red:' . h($primary) . ';--umu-gold:' . h($accent) . ';}</style>';
+}
+
 function is_logged_in(): bool
 {
     return !empty($_SESSION['user_id']);
@@ -167,6 +237,60 @@ function ensure_votes_mode_column(PDO $pdo): void
     }
 
     $checked = true;
+}
+
+/**
+ * Widens categories.gender from ENUM('male','female') to
+ * ENUM('male','female','all') if it isn't already — same self-healing
+ * pattern as the other ensure_*() helpers.
+ *
+ * This is a real, confirmed schema bug, not a guess: the whole app (this
+ * file, vote.php, results.php, and admin/categories.php's own "All"
+ * dropdown option) has always treated 'all' as a valid category gender
+ * meaning "applies to both genders" — but the column was never widened to
+ * actually store it. On a strict-mode MySQL server that INSERT would
+ * throw; on a non-strict server (common on shared hosting) it silently
+ * truncates to an empty string instead. Either way, any category meant
+ * to include both genders ends up with a gender value that matches
+ * neither 'male' nor 'female' nor 'all' in every gender-matching check
+ * across the app — the category effectively shows no contestants of
+ * either gender rather than both.
+ */
+function ensure_category_gender_enum(PDO $pdo): void
+{
+    static $checked = false;
+    if ($checked) {
+        return;
+    }
+
+    $stmt = $pdo->query(
+        "SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'categories' AND COLUMN_NAME = 'gender'"
+    );
+    $columnType = (string) $stmt->fetchColumn();
+    if (stripos($columnType, "'all'") === false) {
+        $pdo->exec("ALTER TABLE categories MODIFY gender ENUM('male','female','all') NOT NULL");
+    }
+
+    $checked = true;
+}
+
+/**
+ * Normalizes a category's stored gender to one of 'male' | 'female' |
+ * 'all'. Any other value (empty string from the enum-truncation bug
+ * above, NULL, unexpected data) is treated as 'all' — inclusive by
+ * default — rather than as excluding every contestant, which is what
+ * happened before this function existed. Use this everywhere a
+ * category's gender is read for display/validation, instead of comparing
+ * the raw column value directly.
+ */
+function normalize_category_gender(?string $value): string
+{
+    $v = strtolower(trim((string) $value));
+    if ($v === 'male' || $v === 'female') {
+        return $v;
+    }
+    return 'all';
 }
 
 /**
@@ -468,7 +592,7 @@ function get_leaderboard(PDO $pdo, string $mode): array
          FROM categories c
          JOIN votes v ON v.category_id = c.id AND v.mode = :mode
          JOIN contestants con ON con.id = v.contestant_id
-            AND (c.gender = con.gender OR c.gender = \"all\")
+            AND (c.gender = con.gender OR c.gender NOT IN (\"male\", \"female\"))
          GROUP BY c.id, con.id
          ORDER BY c.id, con.gender, metric DESC"
     );
@@ -478,7 +602,15 @@ function get_leaderboard(PDO $pdo, string $mode): array
     $categoryLeaders = [];
     foreach ($categoryRows as $row) {
         $contestantGender = $row['contestant_gender'] ?? 'male';
-        $key = ($row['gender'] ?? '') === 'all' ? $row['category_id'] . '_' . $contestantGender : $row['category_id'];
+        // normalize_category_gender(), not a raw === 'all' check: a
+        // category whose gender got corrupted to '' by the enum-
+        // truncation bug (see ensure_category_gender_enum()) still needs
+        // to split male/female into separate leader slots here — without
+        // this, both genders' leaders would collide on the same key and
+        // whichever has the higher metric would silently overwrite the
+        // other, losing that gender's category leader entirely.
+        $categoryGenderNormalized = normalize_category_gender($row['gender'] ?? null);
+        $key = $categoryGenderNormalized === 'all' ? $row['category_id'] . '_' . $contestantGender : $row['category_id'];
         if (!isset($categoryLeaders[$key]) || $row['metric'] > $categoryLeaders[$key]['metric']) {
             $categoryLeaders[$key] = $row;
         }
@@ -490,7 +622,7 @@ function get_leaderboard(PDO $pdo, string $mode): array
          FROM contestants con
          JOIN votes v ON v.contestant_id = con.id AND v.mode = :mode
          JOIN categories c ON c.id = v.category_id
-         WHERE c.gender = con.gender OR c.gender = \"all\"
+         WHERE c.gender = con.gender OR c.gender NOT IN (\"male\", \"female\")
          GROUP BY con.id, con.gender
          ORDER BY con.gender, metric DESC"
     );

@@ -6,7 +6,7 @@ $configPath = __DIR__ . '/../config/config.php';
 $localConfigPath = __DIR__ . '/../config/config.local.php';
 $config = require $configPath;
 
-$pageTitle = 'Settings - UMU Varsity Ball';
+$pageTitle = 'Settings';
 $activePage = 'settings';
 
 $success = '';
@@ -53,6 +53,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'anony
     $config['app']['voting_open'] = !empty($_POST['voting_open']);
     $config['app']['results_public'] = !empty($_POST['results_public']);
     $config['app']['voting_mode'] = ($_POST['voting_mode'] ?? 'rating') === 'simple' ? 'simple' : 'rating';
+
+    // Branding — every field here is optional; leaving one blank falls
+    // back to the app's built-in default (see site_name()/site_male_title()
+    // etc. in includes/helpers.php), it never breaks the page.
+    $config['app']['event_name'] = trim($_POST['event_name'] ?? '');
+    $config['app']['event_tagline'] = trim($_POST['event_tagline'] ?? '');
+    $config['app']['male_title'] = trim($_POST['male_title'] ?? '');
+    $config['app']['female_title'] = trim($_POST['female_title'] ?? '');
+    $logoUrlInput = trim($_POST['logo_url'] ?? '');
+    if ($logoUrlInput !== '' && !preg_match('#^https?://#i', $logoUrlInput) && !str_starts_with($logoUrlInput, '/')) {
+        $errors[] = 'Logo URL must start with http://, https://, or / (a path on this site).';
+    } else {
+        $config['app']['logo_url'] = $logoUrlInput;
+    }
+    foreach (['theme_primary_color' => 'Primary color', 'theme_accent_color' => 'Accent color'] as $colorField => $label) {
+        $colorInput = trim($_POST[$colorField] ?? '');
+        if ($colorInput !== '' && !preg_match('/^#[0-9a-fA-F]{6}$/', $colorInput)) {
+            $errors[] = "{$label} must be a hex color like #c8102e.";
+        } else {
+            $config['app'][$colorField] = $colorInput;
+        }
+    }
+
     $startDate = trim($_POST['voting_start_date'] ?? '');
     $startTime = trim($_POST['voting_start_time'] ?? '');
     $endDate = trim($_POST['voting_end_date'] ?? '');
@@ -82,14 +105,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'anony
         }
     }
 
-    $saveOk = save_app_settings($pdo, [
-        'event_date' => $config['app']['event_date'] ?? '',
-        'voting_open' => !empty($config['app']['voting_open']) ? '1' : '0',
-        'voting_start' => $config['app']['voting_start'] ?? '',
-        'voting_end' => $config['app']['voting_end'] ?? '',
-        'voting_mode' => $config['app']['voting_mode'] ?? 'rating',
-        'results_public' => !empty($config['app']['results_public']) ? '1' : '0',
-    ]);
+    $saveOk = false;
+    if (!$errors) {
+        $saveOk = save_app_settings($pdo, [
+            'event_date' => $config['app']['event_date'] ?? '',
+            'voting_open' => !empty($config['app']['voting_open']) ? '1' : '0',
+            'voting_start' => $config['app']['voting_start'] ?? '',
+            'voting_end' => $config['app']['voting_end'] ?? '',
+            'voting_mode' => $config['app']['voting_mode'] ?? 'rating',
+            'results_public' => !empty($config['app']['results_public']) ? '1' : '0',
+            'event_name' => $config['app']['event_name'] ?? '',
+            'event_tagline' => $config['app']['event_tagline'] ?? '',
+            'male_title' => $config['app']['male_title'] ?? '',
+            'female_title' => $config['app']['female_title'] ?? '',
+            'logo_url' => $config['app']['logo_url'] ?? '',
+            'theme_primary_color' => $config['app']['theme_primary_color'] ?? '',
+            'theme_accent_color' => $config['app']['theme_accent_color'] ?? '',
+        ]);
+    }
 
     if (!$saveOk) {
         $errors[] = 'Unable to save settings to the database.';
@@ -180,6 +213,41 @@ foreach ($votesByMode as $modeKey => $count) {
 <div class="card-dark p-4">
     <form method="post">
         <?php echo csrf_field(); ?>
+        <div class="mb-4">
+            <label class="form-label d-block">Branding</label>
+            <small class="text-muted d-block mb-3">Every field here is optional — leave blank to keep the built-in default. This is what makes the project reusable for a different election without touching any code.</small>
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label">Event / site name</label>
+                    <input class="form-control" type="text" name="event_name" value="<?php echo h($config['app']['event_name'] ?? ''); ?>" placeholder="e.g. UMU Rubaga Varsity Ball">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Tagline (shown on the homepage badge)</label>
+                    <input class="form-control" type="text" name="event_tagline" value="<?php echo h($config['app']['event_tagline'] ?? ''); ?>" placeholder="e.g. Varsity Ball Voting">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Male contestant title</label>
+                    <input class="form-control" type="text" name="male_title" value="<?php echo h($config['app']['male_title'] ?? ''); ?>" placeholder="e.g. Mr UMU Rubaga">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Female contestant title</label>
+                    <input class="form-control" type="text" name="female_title" value="<?php echo h($config['app']['female_title'] ?? ''); ?>" placeholder="e.g. Mrs UMU Rubaga">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Logo URL</label>
+                    <input class="form-control" type="text" name="logo_url" value="<?php echo h($config['app']['logo_url'] ?? ''); ?>" placeholder="https://... or /assets/images/your-logo.png">
+                    <small class="text-muted">Used for the navbar badge, browser tab icon, and certificates. Upload your image anywhere reachable and paste the URL here.</small>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Primary color</label>
+                    <input class="form-control form-control-color" type="color" name="theme_primary_color" value="<?php echo h(site_primary_color($config)); ?>">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Accent color</label>
+                    <input class="form-control form-control-color" type="color" name="theme_accent_color" value="<?php echo h(site_accent_color($config)); ?>">
+                </div>
+            </div>
+        </div>
         <div class="mb-4">
             <label class="form-label d-block">Voting workflow</label>
             <div class="form-check">

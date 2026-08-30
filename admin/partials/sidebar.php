@@ -14,8 +14,8 @@ if (!isset($activePage)) {
 ?>
 <aside class="admin-sidebar">
     <div class="mb-4">
-        <h4 class="mb-1">Admin Panel</h4>
-        <small class="text-muted">UMU Varsity Ball</small>
+        <h4 class="mb-1"><?php echo h(site_name($config)); ?></h4>
+        <small class="text-muted">Admin Panel</small>
     </div>
     <a class="<?php echo $activePage === 'dashboard' ? 'active' : ''; ?>" href="<?php echo h($baseUrl . '/admin/index.php'); ?>">
         <i class="bi bi-speedometer2 me-2"></i>Dashboard
@@ -28,6 +28,9 @@ if (!isset($activePage)) {
     </a>
     <a class="<?php echo $activePage === 'stats' ? 'active' : ''; ?>" href="<?php echo h($baseUrl . '/admin/stats.php'); ?>">
         <i class="bi bi-bar-chart me-2"></i>Stats
+    </a>
+    <a class="<?php echo $activePage === 'integrity' ? 'active' : ''; ?>" href="<?php echo h($baseUrl . '/admin/integrity.php'); ?>">
+        <i class="bi bi-shield-check me-2"></i>Data Integrity
     </a>
     <a class="<?php echo $activePage === 'users' ? 'active' : ''; ?>" href="<?php echo h($baseUrl . '/admin/users.php'); ?>">
         <i class="bi bi-person-x me-2"></i>Users

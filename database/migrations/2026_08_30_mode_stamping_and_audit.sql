@@ -110,3 +110,38 @@ SET @ddl := IF(@is_nullable = 'NO', 'ALTER TABLE votes MODIFY user_id INT NULL',
 PREPARE stmt FROM @ddl;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
+
+-- 6. Fix categories.gender to actually support 'all' -----------------------
+--
+-- categories.gender was ENUM('male','female') NOT NULL, but the entire
+-- app (vote.php, results.php, admin/categories.php's own "All" dropdown
+-- option) has always treated 'all' as a valid value meaning "applies to
+-- both genders". On a non-strict MySQL server (common on shared hosting)
+-- inserting 'all' silently truncated to an empty string instead of
+-- erroring — and a category with gender = '' matched neither 'male' nor
+-- 'female' nor 'all' anywhere in the app, so it showed NO contestants of
+-- either gender rather than both. This is the most likely root cause of
+-- "female contestants are being ignored" reports: any category meant to
+-- include everyone was actually silently empty for everyone.
+--
+-- Widening the column fixes it going forward. Any category already stuck
+-- with a corrupted gender value needs a one-time fix via
+-- Admin -> Categories -> Edit (re-select the correct gender and save) —
+-- this migration can't safely guess which categories were meant to be
+-- 'all' vs originally something else, so it doesn't attempt to rewrite
+-- existing rows. The app treats any unrecognized value as inclusive
+-- ('all') in the meantime, so nothing stays silently broken while you fix
+-- it — see normalize_category_gender() in includes/helpers.php.
+
+SET @column_type := (
+    SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'categories' AND COLUMN_NAME = 'gender'
+);
+SET @ddl := IF(
+    LOCATE("'all'", @column_type) = 0,
+    "ALTER TABLE categories MODIFY gender ENUM('male','female','all') NOT NULL",
+    'SELECT 1'
+);
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;

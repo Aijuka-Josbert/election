@@ -15,7 +15,7 @@ if (!headers_sent()) {
     header('Expires: 0');
 }
 
-$pageTitle = $pageTitle ?? 'UMU Varsity Ball Voting';
+$pageTitle = $pageTitle ?? 'Voting';
 $baseUrl = base_url($config);
 ?>
 <!DOCTYPE html>
@@ -23,21 +23,22 @@ $baseUrl = base_url($config);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo h($pageTitle); ?></title>
-    <link rel="icon" type="image/jpeg" href="<?php echo h(asset_url('assets/images/Untitled.jpeg', $config)); ?>">
-    <link rel="apple-touch-icon" href="<?php echo h(asset_url('assets/images/Untitled.jpeg', $config)); ?>">
+    <title><?php echo h($pageTitle . ' - ' . site_name($config)); ?></title>
+    <link rel="icon" type="image/jpeg" href="<?php echo h(site_logo_url($config)); ?>">
+    <link rel="apple-touch-icon" href="<?php echo h(site_logo_url($config)); ?>">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Manrope:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link href="<?php echo h(asset_url_versioned('assets/css/style.css', $config)); ?>" rel="stylesheet">
+    <?php echo site_theme_style_tag($config); ?>
 </head>
 <body>
 <nav class="navbar navbar-expand-lg navbar-dark glass-nav">
     <div class="container">
         <a class="navbar-brand" href="<?php echo h($baseUrl . '/index.php'); ?>">
-            <img class="brand-badge" src="<?php echo h(asset_url('assets/images/Untitled.jpeg', $config)); ?>" alt="UMU badge">
+            <img class="brand-badge" src="<?php echo h(site_logo_url($config)); ?>" alt="<?php echo h(site_name($config)); ?> badge">
             <span class="brand-dot"></span>
-            <span>UMU Varsity Ball</span>
+            <span><?php echo h(site_name($config)); ?></span>
         </a>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav">
             <span class="navbar-toggler-icon"></span>

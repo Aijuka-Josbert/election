@@ -6,6 +6,7 @@
  */
 require_once __DIR__ . '/includes/header.php';
 require_once __DIR__ . '/includes/db.php';
+$votingMode = get_voting_mode($config);
 
 // Fetch a small set of recent contestants to display on the homepage
 $previewStmt = $pdo->query("SELECT id, name, gender, photo, bio FROM contestants ORDER BY created_at DESC LIMIT 6");
@@ -16,9 +17,9 @@ $previewContestants = $previewStmt->fetchAll();
         <div class="row align-items-center g-5">
             <div class="col-lg-6">
                 <div class="hero-card p-4 p-lg-5">
-                    <span class="badge badge-gold">Varsity Ball Voting</span>
-                    <h1 class="display-5 mt-3">Vote for the stars of UMU Rubaga</h1>
-                    <p class="mt-3 text-muted">Celebrate charisma, leadership, and style. Rate every contestant across each category to crown Mr &amp; Mrs UMU Rubaga.</p>
+                    <span class="badge badge-gold"><?php echo h(site_tagline($config) ?: 'Cast your vote'); ?></span>
+                    <h1 class="display-5 mt-3"><?php echo h(site_name($config)); ?></h1>
+                    <p class="mt-3 text-muted">Celebrate charisma, leadership, and style. Cast your vote across each category to crown <?php echo h(site_male_title($config)); ?> &amp; <?php echo h(site_female_title($config)); ?>.</p>
                     <div class="d-flex flex-wrap gap-3 mt-4">
                         <?php if (is_logged_in()): ?>
                             <a class="btn btn-primary btn-lg" href="vote.php">Start Voting</a>
@@ -73,14 +74,14 @@ $previewContestants = $previewStmt->fetchAll();
             </div>
             <div class="col-md-4">
                 <div class="card-dark p-4 h-100">
-                    <h3>Score based</h3>
-                    <p class="text-muted">Rate contestants 1-5 across every category to crown the real favorites.</p>
+                    <h3><?php echo $votingMode === 'simple' ? 'One tap to vote' : 'Score based'; ?></h3>
+                    <p class="text-muted"><?php echo $votingMode === 'simple' ? 'Pick your favourite in every category and submit once.' : 'Rate contestants 1-5 across every category to crown the real favorites.'; ?></p>
                 </div>
             </div>
             <div class="col-md-4">
                 <div class="card-dark p-4 h-100">
                     <h3>Live results</h3>
-                    <p class="text-muted">Track category leaders and the overall Mr &amp; Mrs UMU Rubaga in real time.</p>
+                    <p class="text-muted">Track category leaders and the overall <?php echo h(site_male_title($config)); ?> &amp; <?php echo h(site_female_title($config)); ?> in real time.</p>
                 </div>
             </div>
         </div>
@@ -94,30 +95,51 @@ $previewContestants = $previewStmt->fetchAll();
                 <h2 class="mb-0">How winners are awarded</h2>
             </div>
             <div class="row g-3">
-                <div class="col-md-3">
-                    <div class="card-dark p-3 h-100">
-                        <h5>Step 1</h5>
-                        <p class="text-muted mb-0">Every student rates each contestant from 1 to 5 in every category.</p>
+                <?php if ($votingMode === 'simple'): ?>
+                    <div class="col-md-4">
+                        <div class="card-dark p-3 h-100">
+                            <h5>Step 1</h5>
+                            <p class="text-muted mb-0">Every voter picks one contestant per category (and one per gender in categories open to everyone).</p>
+                        </div>
                     </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card-dark p-3 h-100">
-                        <h5>Step 2</h5>
-                        <p class="text-muted mb-0">For each category, the system calculates the average score per contestant.</p>
+                    <div class="col-md-4">
+                        <div class="card-dark p-3 h-100">
+                            <h5>Step 2</h5>
+                            <p class="text-muted mb-0">The system counts votes per contestant per category.</p>
+                        </div>
                     </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card-dark p-3 h-100">
-                        <h5>Step 3</h5>
-                        <p class="text-muted mb-0">Category winners are the highest average in that category.</p>
+                    <div class="col-md-4">
+                        <div class="card-dark p-3 h-100">
+                            <h5>Step 3</h5>
+                            <p class="text-muted mb-0">Category and overall winners are whoever has the most votes.</p>
+                        </div>
                     </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card-dark p-3 h-100">
-                        <h5>Step 4</h5>
-                        <p class="text-muted mb-0">Overall Mr &amp; Mrs UMU Rubaga are the highest combined average.</p>
+                <?php else: ?>
+                    <div class="col-md-3">
+                        <div class="card-dark p-3 h-100">
+                            <h5>Step 1</h5>
+                            <p class="text-muted mb-0">Every student rates each contestant from 1 to 5 in every category.</p>
+                        </div>
                     </div>
-                </div>
+                    <div class="col-md-3">
+                        <div class="card-dark p-3 h-100">
+                            <h5>Step 2</h5>
+                            <p class="text-muted mb-0">For each category, the system calculates the average score per contestant.</p>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card-dark p-3 h-100">
+                            <h5>Step 3</h5>
+                            <p class="text-muted mb-0">Category winners are the highest average in that category.</p>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card-dark p-3 h-100">
+                            <h5>Step 4</h5>
+                            <p class="text-muted mb-0">Overall <?php echo h(site_male_title($config)); ?> &amp; <?php echo h(site_female_title($config)); ?> are the highest combined average.</p>
+                        </div>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
     </div>

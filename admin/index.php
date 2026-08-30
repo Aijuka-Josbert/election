@@ -7,7 +7,7 @@ if (isset($pdo)) {
     $config = apply_app_settings($config, $pdo);
 }
 
-$pageTitle = 'Admin Dashboard - UMU Varsity Ball';
+$pageTitle = 'Admin Dashboard';
 $activePage = 'dashboard';
 require_once __DIR__ . '/partials/header.php';
 
@@ -17,6 +17,9 @@ $totalVotes = (int) $pdo->query('SELECT COUNT(*) FROM votes')->fetchColumn();
 $totalContestants = (int) $pdo->query('SELECT COUNT(*) FROM contestants')->fetchColumn();
 
 $votingMode = get_voting_mode($config);
+if (isset($pdo)) {
+    ensure_category_gender_enum($pdo);
+}
 $votingStatus = voting_status_message($config);
 $resultsPublic = (bool) ($config['app']['results_public'] ?? false);
 
@@ -84,7 +87,7 @@ $overallWinners = $board['overall_winners'];
     </div>
 </div>
 <div class="row g-4">
-    <?php foreach (['female' => 'Mrs UMU Rubaga', 'male' => 'Mr UMU Rubaga'] as $gender => $title): ?>
+    <?php foreach (['female' => site_female_title($config), 'male' => site_male_title($config)] as $gender => $title): ?>
         <?php $winner = $overallWinners[$gender]; ?>
         <div class="col-md-6">
             <div class="leader-card">

@@ -5,7 +5,7 @@
  * overall averages using SQL AVG() and prepares data for charts.
  * Only visible to admins by default; the $showResults flag controls visibility.
  */
-$pageTitle = 'Results - UMU Varsity Ball';
+$pageTitle = 'Results';
 $config = require __DIR__ . '/config/config.php';
 require_once __DIR__ . '/includes/header.php';
 require_once __DIR__ . '/includes/db.php';
@@ -27,6 +27,9 @@ $hasEnded = $endTime ? $now > $endTime : false;
 $showResults = $isAdmin || $resultsPublic;
 
 $votingMode = get_voting_mode($config);
+if (isset($pdo)) {
+    ensure_category_gender_enum($pdo);
+}
 
 $categoryScores = [];
 $categoryLeaders = [];
@@ -69,7 +72,7 @@ if ($showResults) {
          FROM contestants con
          JOIN votes v ON v.contestant_id = con.id
          JOIN categories c ON c.id = v.category_id
-         WHERE c.gender = con.gender OR c.gender = \"all\"
+         WHERE c.gender = con.gender OR c.gender NOT IN (\"male\", \"female\")
          GROUP BY con.id, con.gender
          ORDER BY con.gender, metric DESC"
     )->fetchAll();
@@ -99,13 +102,13 @@ if ($showResults) {
          FROM categories c
          JOIN votes v ON v.category_id = c.id
          JOIN contestants con ON con.id = v.contestant_id
-         WHERE c.gender = con.gender OR c.gender = \"all\"
+         WHERE c.gender = con.gender OR c.gender NOT IN (\"male\", \"female\")
          GROUP BY c.id, con.gender
          ORDER BY c.gender, c.id, con.gender"
     )->fetchAll();
 
     foreach ($categoryAvgRows as $row) {
-        $categoryGender = $row['gender'] ?? '';
+        $categoryGender = normalize_category_gender($row['gender'] ?? null);
         $contestantGender = $row['contestant_gender'] ?? 'male';
         
         if ($categoryGender === 'all') {
@@ -163,7 +166,7 @@ if ($showResults) {
                                 <div class="text-uppercase text-muted small">Category winner</div>
                                 <h4 class="mt-2 mb-3">
                                     <?php echo h($leader['category_name']); ?>
-                                    <?php if ($leader['gender'] === 'all'): ?>
+                                    <?php if (normalize_category_gender($leader['gender'] ?? null) === 'all'): ?>
                                         <small class="d-block" style="font-size: 0.75rem; margin-top: 4px;">
                                             (<?php echo ucfirst($leader['contestant_gender'] ?? 'male'); ?>)
                                         </small>
@@ -179,7 +182,7 @@ if ($showResults) {
                             </div>
                         </div>
                     <?php endforeach; ?>
-                    <?php foreach (['female' => 'Mrs UMU Rubaga', 'male' => 'Mr UMU Rubaga'] as $gender => $title): ?>
+                    <?php foreach (['female' => site_female_title($config), 'male' => site_male_title($config)] as $gender => $title): ?>
                         <?php $winner = $overallWinners[$gender]; ?>
                         <div class="result-slide">
                             <div class="leader-card winner-spotlight h-100">
@@ -211,7 +214,7 @@ if ($showResults) {
                         <div class="card-dark p-3 h-100">
                             <h5 class="mb-2">
                                 <?php echo h($leader['category_name']); ?>
-                                <?php if ($leader['gender'] === 'all'): ?>
+                                <?php if (normalize_category_gender($leader['gender'] ?? null) === 'all'): ?>
                                     <small class="d-block text-muted" style="font-size: 0.85rem; font-weight: normal;">
                                         (<?php echo ucfirst($leader['contestant_gender'] ?? 'male'); ?>)
                                     </small>
@@ -271,7 +274,7 @@ if ($showResults) {
                     $femaleWinner = $overallWinners['female']['contestant_name'] ?? 'TBD';
                     $maleWinner = $overallWinners['male']['contestant_name'] ?? 'TBD';
                     ?>
-                    Congratulations to Mrs UMU Rubaga: <?php echo h($femaleWinner); ?>, and Mr UMU Rubaga: <?php echo h($maleWinner); ?>.
+                    Congratulations to <?php echo h(site_female_title($config)); ?>: <?php echo h($femaleWinner); ?>, and <?php echo h(site_male_title($config)); ?>: <?php echo h($maleWinner); ?>.
                 </p>
                 <div class="d-flex flex-wrap gap-2">
                     <a class="btn btn-outline-light" href="certificate.php?gender=female">Download Mrs certificate</a>

@@ -106,14 +106,16 @@ document.addEventListener("DOMContentLoaded", () => {
         const activeStep = voteSteps[currentStep];
         const categoryName = activeStep?.dataset?.category || "";
         const gender = activeStep?.dataset?.gender || "";
-        
+        const maleTitle = voteForm?.dataset?.maleTitle || "Mr UMU Rubaga";
+        const femaleTitle = voteForm?.dataset?.femaleTitle || "Mrs UMU Rubaga";
+
         let genderLabel;
         if (gender === "all") {
-            genderLabel = "Mr & Mrs UMU Rubaga";
+            genderLabel = `${maleTitle} & ${femaleTitle}`;
         } else if (gender === "female") {
-            genderLabel = "Mrs UMU Rubaga";
+            genderLabel = femaleTitle;
         } else {
-            genderLabel = "Mr UMU Rubaga";
+            genderLabel = maleTitle;
         }
 
         if (currentCategoryTitle) {

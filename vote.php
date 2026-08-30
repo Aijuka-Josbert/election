@@ -15,7 +15,7 @@ if (isset($pdo)) {
     $config = apply_app_settings($config, $pdo);
 }
 
-$pageTitle = 'Vote - UMU Varsity Ball';
+$pageTitle = 'Vote';
 require_once __DIR__ . '/includes/header.php';
 
 // Check if user is admin
@@ -48,6 +48,7 @@ if (isset($pdo)) {
     ensure_votes_mode_column($pdo);
     ensure_active_column($pdo, 'categories');
     ensure_active_column($pdo, 'contestants');
+    ensure_category_gender_enum($pdo);
 }
 
 // Load categories and contestants (limited by config). Only active ones —
@@ -76,8 +77,8 @@ foreach ($contestants as $contestant) {
 }
 
 $contestantSections = [
-    ['key' => 'male', 'label' => 'Mr UMU Rubaga'],
-    ['key' => 'female', 'label' => 'Mrs UMU Rubaga'],
+    ['key' => 'male', 'label' => site_male_title($config)],
+    ['key' => 'female', 'label' => site_female_title($config)],
 ];
 
 $errors = [];
@@ -88,7 +89,7 @@ $submittedChoices = [];
 // Given a category, return which gender group(s) of contestants apply to it.
 function categoryContestantGroups(array $category): array
 {
-    $categoryGender = $category['gender'] ?? 'all';
+    $categoryGender = normalize_category_gender($category['gender'] ?? null);
     return $categoryGender === 'all' ? ['male', 'female'] : [$categoryGender];
 }
 
@@ -388,7 +389,7 @@ if ($showWinners) {
                     <?php
                     $stepTotal = count($categorySteps);
                     ?>
-                    <form method="post" id="voteForm" class="vote-form" data-total="<?php echo (int) $totalRatings; ?>" data-steps="<?php echo (int) $stepTotal; ?>" data-categories="<?php echo htmlspecialchars(json_encode(array_map(fn($c) => ['id' => $c['id'], 'name' => $c['name']], $categories)), ENT_QUOTES, 'UTF-8'); ?>">
+                    <form method="post" id="voteForm" class="vote-form" data-total="<?php echo (int) $totalRatings; ?>" data-steps="<?php echo (int) $stepTotal; ?>" data-male-title="<?php echo h(site_male_title($config)); ?>" data-female-title="<?php echo h(site_female_title($config)); ?>" data-categories="<?php echo htmlspecialchars(json_encode(array_map(fn($c) => ['id' => $c['id'], 'name' => $c['name']], $categories)), ENT_QUOTES, 'UTF-8'); ?>">
                         <?php echo csrf_field(); ?>
                         <?php foreach ($categorySteps as $index => $category): ?>
                             <div class="vote-step mb-5" data-step="<?php echo (int) $index; ?>" data-category-id="<?php echo (int) $category['id']; ?>" data-gender="<?php echo h($category['gender']); ?>" data-category="<?php echo h($category['name']); ?>" style="<?php echo $index === 0 ? '' : 'display:none;'; ?>">
@@ -398,13 +399,13 @@ if ($showWinners) {
                                             <h3 class="mb-2"><?php echo h($category['name']); ?></h3>
                                             <small class="text-muted text-uppercase">
                                                 <?php 
-                                                $categoryGender = $category['gender'] ?? 'all';
+                                                $categoryGender = normalize_category_gender($category['gender'] ?? null);
                                                 if ($categoryGender === 'all') {
                                                     echo 'Rate both male &amp; female';
                                                 } elseif ($categoryGender === 'male') {
-                                                    echo 'Rate Mr UMU Rubaga';
+                                                    echo 'Rate ' . h(site_male_title($config));
                                                 } else {
-                                                    echo 'Rate Mrs UMU Rubaga';
+                                                    echo 'Rate ' . h(site_female_title($config));
                                                 }
                                                 ?>
                                             </small>
@@ -415,7 +416,7 @@ if ($showWinners) {
                                     <div class="row g-4">
                                         <?php foreach ($contestantSections as $section): ?>
                                             <?php 
-                                            $categoryGender = $category['gender'] ?? 'all';
+                                            $categoryGender = normalize_category_gender($category['gender'] ?? null);
                                             $shouldShow = ($categoryGender === 'all' || $categoryGender === $section['key']);
                                             if (!$shouldShow) continue;
                                             ?>
@@ -483,12 +484,12 @@ if ($showWinners) {
             <form method="post" id="simpleVoteForm" class="vote-form-simple">
                 <?php echo csrf_field(); ?>
                 <?php foreach ($categories as $category): ?>
-                    <?php $categoryGender = $category['gender'] ?? 'all'; ?>
+                    <?php $categoryGender = normalize_category_gender($category['gender'] ?? null); ?>
                     <div class="card-dark p-4 mb-4">
                         <div class="d-flex justify-content-between align-items-center mb-4">
                             <h3 class="mb-0"><?php echo h($category['name']); ?></h3>
                             <?php if ($categoryGender !== 'all'): ?>
-                                <span class="badge badge-gold"><?php echo $categoryGender === 'male' ? 'Mr UMU Rubaga' : 'Mrs UMU Rubaga'; ?></span>
+                                <span class="badge badge-gold"><?php echo $categoryGender === 'male' ? h(site_male_title($config)) : h(site_female_title($config)); ?></span>
                             <?php endif; ?>
                         </div>
                         <div class="row g-4">
@@ -574,7 +575,7 @@ if ($showWinners) {
 
                 <!-- Overall Winners: females first, then males -->
                 <div class="row g-4 mb-5">
-                    <?php foreach (['female' => 'Mrs UMU Rubaga', 'male' => 'Mr UMU Rubaga'] as $gender => $title): ?>
+                    <?php foreach (['female' => site_female_title($config), 'male' => site_male_title($config)] as $gender => $title): ?>
                         <?php $winner = $overallWinners[$gender]; ?>
                         <div class="col-md-6">
                             <div class="card-dark p-4 h-100" style="background: linear-gradient(135deg, rgba(255,193,7,.1) 0%, rgba(255,152,0,.1) 100%);">
@@ -604,7 +605,7 @@ if ($showWinners) {
                             <div class="card-dark p-3 h-100">
                                 <small class="text-muted text-uppercase d-block mb-2">
                                     <?php echo h($leader['category_name']); ?>
-                                    <?php if ($leader['gender'] === 'all'): ?>
+                                    <?php if (normalize_category_gender($leader['gender'] ?? null) === 'all'): ?>
                                         <span style="display: inline-block; margin-left: 4px; font-size: 0.75rem;">
                                             (<?php echo ucfirst($leader['contestant_gender'] ?? 'male'); ?>)
                                         </span>
@@ -630,7 +631,7 @@ if ($showWinners) {
                     $maleWinnerName = $overallWinners['male']['contestant_name'] ?? 'TBD';
                     ?>
                     <p class="text-muted mb-3">
-                        Congratulations to Mrs UMU Rubaga: <?php echo h($femaleWinnerName); ?>, and Mr UMU Rubaga: <?php echo h($maleWinnerName); ?>.
+                        Congratulations to <?php echo h(site_female_title($config)); ?>: <?php echo h($femaleWinnerName); ?>, and <?php echo h(site_male_title($config)); ?>: <?php echo h($maleWinnerName); ?>.
                     </p>
                     <div class="d-flex flex-wrap gap-2">
                         <a class="btn btn-outline-light" href="certificate.php?gender=female">Download Mrs certificate</a>
@@ -706,7 +707,7 @@ if ($showWinners) {
                                     <?php foreach ($contestants as $contestant): ?>
                                         <?php
                                         // Only show contestants that match the category gender
-                                        $categoryGender = $category['gender'] ?? 'all';
+                                        $categoryGender = normalize_category_gender($category['gender'] ?? null);
                                         $contestantGender = $contestant['gender'] ?? 'male';
                                         $shouldDisplay = ($categoryGender === 'all' || $categoryGender === $contestantGender);
                                         if (!$shouldDisplay) continue;
