@@ -34,7 +34,7 @@ CREATE TABLE `admin_audit_log` (
   PRIMARY KEY (`id`),
   KEY `idx_audit_action` (`action`),
   KEY `idx_audit_created` (`created_at`)
-) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=16 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -51,7 +51,15 @@ INSERT INTO `admin_audit_log` VALUES
 (4,1,'josbert.aijuka@stud.umu.ac.ug','results_public_changed','made public','127.0.0.1','2026-08-30 08:12:46'),
 (5,1,'josbert.aijuka@stud.umu.ac.ug','voting_open_changed','opened','127.0.0.1','2026-08-30 16:56:41'),
 (6,1,'josbert.aijuka@stud.umu.ac.ug','voting_open_changed','closed','127.0.0.1','2026-08-30 17:00:27'),
-(7,1,'josbert.aijuka@stud.umu.ac.ug','voting_open_changed','opened','127.0.0.1','2026-08-30 17:06:29');
+(7,1,'josbert.aijuka@stud.umu.ac.ug','voting_open_changed','opened','127.0.0.1','2026-08-30 17:06:29'),
+(8,1,'josbert.aijuka@stud.umu.ac.ug','voting_open_changed','closed','127.0.0.1','2026-08-31 06:58:00'),
+(9,1,'josbert.aijuka@stud.umu.ac.ug','contestant_archived','id=9','127.0.0.1','2026-08-31 06:58:47'),
+(10,1,'josbert.aijuka@stud.umu.ac.ug','contestant_reactivated','id=9','127.0.0.1','2026-08-31 06:58:50'),
+(11,1,'josbert.aijuka@stud.umu.ac.ug','contestant_archived','id=8','127.0.0.1','2026-08-31 06:58:53'),
+(12,1,'josbert.aijuka@stud.umu.ac.ug','contestant_reactivated','id=8','127.0.0.1','2026-08-31 06:58:56'),
+(13,1,'josbert.aijuka@stud.umu.ac.ug','contestant_archived','id=7','127.0.0.1','2026-08-31 06:58:59'),
+(14,1,'josbert.aijuka@stud.umu.ac.ug','contestant_reactivated','id=7','127.0.0.1','2026-08-31 06:59:01'),
+(15,1,'josbert.aijuka@stud.umu.ac.ug','voting_open_changed','opened','127.0.0.1','2026-08-31 11:51:20');
 /*!40000 ALTER TABLE `admin_audit_log` ENABLE KEYS */;
 UNLOCK TABLES;
 COMMIT;
@@ -80,11 +88,19 @@ LOCK TABLES `app_settings` WRITE;
 /*!40000 ALTER TABLE `app_settings` DISABLE KEYS */;
 INSERT INTO `app_settings` VALUES
 ('event_date','2026-08-31 00:00:00'),
+('event_name','UMU FRESHERS BALL'),
+('event_tagline','FRESHERS BALL'),
+('female_title','MRS FRESHER LUBAGA'),
+('logo_url',''),
+('male_title','MR FRESHER LUGAGA'),
 ('results_public','1'),
+('theme_accent_color','#2ec27e'),
+('theme_background_color','#f7f7f7'),
+('theme_primary_color','#e01b24'),
 ('voting_end','2026-09-01 00:00:00'),
 ('voting_mode','simple'),
 ('voting_open','1'),
-('voting_start','2026-08-31 00:00:00');
+('voting_start','2026-08-30 00:00:00');
 /*!40000 ALTER TABLE `app_settings` ENABLE KEYS */;
 UNLOCK TABLES;
 COMMIT;
@@ -100,7 +116,7 @@ DROP TABLE IF EXISTS `categories`;
 CREATE TABLE `categories` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` varchar(255) NOT NULL,
-  `gender` enum('male','female') NOT NULL,
+  `gender` enum('male','female','all') NOT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `active` tinyint(1) NOT NULL DEFAULT 1,
   PRIMARY KEY (`id`)
@@ -115,26 +131,26 @@ SET @OLD_AUTOCOMMIT=@@AUTOCOMMIT, @@AUTOCOMMIT=0;
 LOCK TABLES `categories` WRITE;
 /*!40000 ALTER TABLE `categories` DISABLE KEYS */;
 INSERT INTO `categories` VALUES
-(1,'Smartest','male','2026-05-13 12:53:26',1),
-(2,'Most Approachable','male','2026-05-13 12:53:26',1),
-(3,'Most Stylish','male','2026-05-13 12:53:26',1),
-(4,'Most Influential','male','2026-05-13 12:53:26',1),
-(5,'Most Creative','male','2026-05-13 12:53:26',1),
-(6,'Most Social','male','2026-05-13 12:53:26',1),
-(7,'Best Smile','male','2026-05-13 12:53:26',1),
-(8,'Most Entertaining','male','2026-05-13 12:53:26',1),
-(9,'Smart (Dress Code)','male','2026-05-13 12:53:26',1),
-(10,'Brains (Outside the Box)','male','2026-05-13 12:53:26',1),
-(14,'Smartest','female','2026-05-13 12:53:26',1),
-(15,'Most Approachable','female','2026-05-13 12:53:26',1),
-(16,'Most Stylish','female','2026-05-13 12:53:26',1),
-(17,'Most Influential','female','2026-05-13 12:53:26',1),
-(18,'Most Creative','female','2026-05-13 12:53:26',1),
-(19,'Most Social','female','2026-05-13 12:53:26',1),
-(20,'Best Smile','female','2026-05-13 12:53:26',1),
-(21,'Most Entertaining','female','2026-05-13 12:53:26',1),
-(22,'Smart (Dress Code)','female','2026-05-13 12:53:26',1),
-(23,'Brains (Outside the Box)','female','2026-05-13 12:53:26',1);
+(1,'Smartest','all','2026-05-13 12:53:26',1),
+(2,'Most Approachable','all','2026-05-13 12:53:26',1),
+(3,'Most Stylish','all','2026-05-13 12:53:26',1),
+(4,'Most Influential','all','2026-05-13 12:53:26',1),
+(5,'Most Creative','all','2026-05-13 12:53:26',1),
+(6,'Most Social','all','2026-05-13 12:53:26',1),
+(7,'Best Smile','all','2026-05-13 12:53:26',1),
+(8,'Most Entertaining','all','2026-05-13 12:53:26',1),
+(9,'Smart (Dress Code)','all','2026-05-13 12:53:26',1),
+(10,'Brains (Outside the Box)','all','2026-05-13 12:53:26',1),
+(14,'Smartest','all','2026-05-13 12:53:26',1),
+(15,'Most Approachable','all','2026-05-13 12:53:26',1),
+(16,'Most Stylish','all','2026-05-13 12:53:26',1),
+(17,'Most Influential','all','2026-05-13 12:53:26',1),
+(18,'Most Creative','all','2026-05-13 12:53:26',1),
+(19,'Most Social','all','2026-05-13 12:53:26',1),
+(20,'Best Smile','all','2026-05-13 12:53:26',1),
+(21,'Most Entertaining','all','2026-05-13 12:53:26',1),
+(22,'Smart (Dress Code)','all','2026-05-13 12:53:26',1),
+(23,'Brains (Outside the Box)','all','2026-05-13 12:53:26',1);
 /*!40000 ALTER TABLE `categories` ENABLE KEYS */;
 UNLOCK TABLES;
 COMMIT;
@@ -205,6 +221,12 @@ INSERT INTO `rate_limits` VALUES
 ('admin_settings:user:1:29801640',1,'2026-08-30 14:01:00'),
 ('admin_settings:user:1:29801646',1,'2026-08-30 14:07:00'),
 ('admin_settings:user:1:29801647',1,'2026-08-30 14:08:00'),
+('admin_settings:user:1:29801963',1,'2026-08-30 19:24:00'),
+('admin_settings:user:1:29801974',1,'2026-08-30 19:35:00'),
+('admin_settings:user:1:29802478',1,'2026-08-31 03:59:00'),
+('admin_settings:user:1:29802771',1,'2026-08-31 08:52:00'),
+('oauth_callback:ip:127.0.0.1:29801961',1,'2026-08-30 19:22:00'),
+('oauth_callback:ip:127.0.0.1:29802770',1,'2026-08-31 08:51:00'),
 ('oauth_callback:user:1:29801635',1,'2026-08-30 13:56:00');
 /*!40000 ALTER TABLE `rate_limits` ENABLE KEYS */;
 UNLOCK TABLES;
@@ -235,8 +257,12 @@ SET @OLD_AUTOCOMMIT=@@AUTOCOMMIT, @@AUTOCOMMIT=0;
 LOCK TABLES `sessions` WRITE;
 /*!40000 ALTER TABLE `sessions` DISABLE KEYS */;
 INSERT INTO `sessions` VALUES
-('ac4464208c837df18d85676f207cda34',1788098896,''),
-('e2845c1dfa70872753d63fb03d8c892c',1788098058,'');
+('0927f15bfcad9337d79cd2d8abfb3121',1788116537,'oauth_state|s:32:\"62ebc78f70cb50a46498777d18063f8d\";'),
+('866a7b4093681a0142e272a544206c05',1788116591,''),
+('a757f93431e6329f7abae47618dfdda8',1788117308,''),
+('e2845c1dfa70872753d63fb03d8c892c',1788117324,'oauth_state|s:32:\"5c26ba30b7f4b99482b2c689c169a8fe\";'),
+('ec3a1e10bdec09e00aaa2e680153577e',1788166332,'user_id|i:1;user_name|s:14:\"AIJUKA JOSBERT\";user_email|s:29:\"josbert.aijuka@stud.umu.ac.ug\";has_voted|i:0;csrf_token|s:64:\"8d86ba2d5a7fe12e471c3241baa060bb2090654dc7e1a4b7c5e0446b829a37bc\";'),
+('f457af3670c430dfe4cb97c3c7f9a0f5',1788149248,'user_id|i:1;user_name|s:14:\"AIJUKA JOSBERT\";user_email|s:29:\"josbert.aijuka@stud.umu.ac.ug\";has_voted|i:0;csrf_token|s:64:\"08db0b90aab0762b3fe33a66baac3a4a799d663cdb4d05b20bd0bd0ed9e40fd0\";');
 /*!40000 ALTER TABLE `sessions` ENABLE KEYS */;
 UNLOCK TABLES;
 COMMIT;
@@ -334,4 +360,4 @@ SET AUTOCOMMIT=@OLD_AUTOCOMMIT;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*M!100616 SET NOTE_VERBOSITY=@OLD_NOTE_VERBOSITY */;
 
--- Dump completed on 2026-08-30 17:20:35
+-- Dump completed on 2026-08-31 11:52:50

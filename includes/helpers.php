@@ -50,6 +50,20 @@ function site_accent_color(array $config): string
 }
 
 /**
+ * Page background color — deliberately separate from primary/accent:
+ * those two tint the hero section, buttons, and badges (already
+ * low-opacity overlays derived from them), while this controls the flat
+ * base color behind the whole page (style.css's `body { background }`).
+ * Wanting to change "the background" and wanting to change "the brand
+ * colors" are two different asks even though they interact visually.
+ */
+function site_background_color(array $config): string
+{
+    $color = trim((string) ($config['app']['theme_background_color'] ?? ''));
+    return $color !== '' && preg_match('/^#[0-9a-fA-F]{6}$/', $color) ? $color : '#f7f7f7';
+}
+
+/**
  * Contest titles ("Mr UMU Rubaga" / "Mrs UMU Rubaga") — admin-editable so
  * this codebase can be reused for a differently-named contest (e.g.
  * "Mr & Miss Freshers", "King & Queen of the Ball") without touching PHP.
@@ -69,15 +83,26 @@ function site_female_title(array $config): string
 /**
  * Inline <style> block overriding the CSS custom properties style.css is
  * already built on (--umu-red, --umu-gold) with the admin's chosen
- * colors. Kept as a tiny, isolated override rather than editing
- * style.css itself, so the stylesheet stays cacheable and the override
- * is easy to reason about.
+ * colors, plus the page's base background color. Kept as a tiny,
+ * isolated override rather than editing style.css itself, so the
+ * stylesheet stays cacheable and the override is easy to reason about.
  */
 function site_theme_style_tag(array $config): string
 {
     $primary = site_primary_color($config);
     $accent = site_accent_color($config);
-    return '<style>:root{--umu-red:' . h($primary) . ';--umu-gold:' . h($accent) . ';}</style>';
+    $background = site_background_color($config);
+    // .hero's own background is a radial-gradient using hardcoded rgba()
+    // literals (not var(--umu-red)/var(--umu-gold)), so overriding the
+    // CSS variables alone doesn't touch it — it's what actually produces
+    // the pink/cream tint visible on the homepage. Override it directly
+    // (flat background color, gradient removed) so the admin's chosen
+    // background color is what actually shows there, and neutralize the
+    // ::after pseudo-element's separate gold overlay for the same reason.
+    return '<style>:root{--umu-red:' . h($primary) . ';--umu-gold:' . h($accent) . ';}'
+        . 'body{background:' . h($background) . ' !important;}'
+        . '.hero{background:' . h($background) . ' !important;}'
+        . '.hero::after{background:transparent !important;}</style>';
 }
 
 function is_logged_in(): bool

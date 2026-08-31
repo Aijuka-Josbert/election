@@ -43,10 +43,8 @@ if (!in_array($certificateGender, ['male', 'female'], true)) {
 $votingMode = get_voting_mode($config);
 if (isset($pdo)) {
     ensure_category_gender_enum($pdo);
-    $board = get_leaderboard($pdo, $votingMode);
-} else {
-    $board = ['overall_winners' => []];
 }
+$board = get_leaderboard($pdo, $votingMode);
 $winner = $board['overall_winners'][$certificateGender] ?? null;
 
 $winnerName = $winner['contestant_name'] ?? 'TBD';

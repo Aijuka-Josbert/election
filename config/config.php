@@ -86,7 +86,7 @@ $config = [
         'client_secret' => getenv('GOOGLE_CLIENT_SECRET') ?: '',
         'redirect_uri' => $isLive
             ? 'https://umuelections.fwh.is/umu_vote/google-callback.php'
-            : 'http://localhost/umu_vote/google-callback.php',
+            : 'http://localhost/election/google-callback.php',
     ],
     'uploads' => [
         'contestants_dir' => __DIR__ . '/../uploads/contestants',

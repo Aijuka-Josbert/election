@@ -67,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'anony
     } else {
         $config['app']['logo_url'] = $logoUrlInput;
     }
-    foreach (['theme_primary_color' => 'Primary color', 'theme_accent_color' => 'Accent color'] as $colorField => $label) {
+    foreach (['theme_primary_color' => 'Primary color', 'theme_accent_color' => 'Accent color', 'theme_background_color' => 'Background color'] as $colorField => $label) {
         $colorInput = trim($_POST[$colorField] ?? '');
         if ($colorInput !== '' && !preg_match('/^#[0-9a-fA-F]{6}$/', $colorInput)) {
             $errors[] = "{$label} must be a hex color like #c8102e.";
@@ -121,6 +121,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'anony
             'logo_url' => $config['app']['logo_url'] ?? '',
             'theme_primary_color' => $config['app']['theme_primary_color'] ?? '',
             'theme_accent_color' => $config['app']['theme_accent_color'] ?? '',
+            'theme_background_color' => $config['app']['theme_background_color'] ?? '',
         ]);
     }
 
@@ -245,6 +246,11 @@ foreach ($votesByMode as $modeKey => $count) {
                 <div class="col-md-3">
                     <label class="form-label">Accent color</label>
                     <input class="form-control form-control-color" type="color" name="theme_accent_color" value="<?php echo h(site_accent_color($config)); ?>">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Background color</label>
+                    <input class="form-control form-control-color" type="color" name="theme_background_color" value="<?php echo h(site_background_color($config)); ?>">
+                    <small class="text-muted">The page's base background, separate from the brand colors above.</small>
                 </div>
             </div>
         </div>
