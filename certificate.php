@@ -27,7 +27,9 @@ $canDownload = $isAdmin || $resultsPublic;
 
 if (!$canDownload) {
     http_response_code(403);
-    echo 'Certificates are available once results are public (or to admins).';
+    echo 'Certificates are available once results are public, or to the signed-in event admin. '
+        . 'If you are the admin: confirm you are logged in with the email listed in config[\'app\'][\'admin_emails\'], '
+        . 'or turn on "Make results visible to everyone" in Admin -> Settings.';
     exit;
 }
 
@@ -41,8 +43,10 @@ if (!in_array($certificateGender, ['male', 'female'], true)) {
 $votingMode = get_voting_mode($config);
 if (isset($pdo)) {
     ensure_category_gender_enum($pdo);
+    $board = get_leaderboard($pdo, $votingMode);
+} else {
+    $board = ['overall_winners' => []];
 }
-$board = get_leaderboard($pdo, $votingMode);
 $winner = $board['overall_winners'][$certificateGender] ?? null;
 
 $winnerName = $winner['contestant_name'] ?? 'TBD';

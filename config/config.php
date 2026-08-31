@@ -45,7 +45,7 @@ $config = [
     ],
     'environments' => [
         'local' => [
-            'hosts' => ['127.0.0.1'],
+            'hosts' => ['localhost', '127.0.0.1'],
             'db' => [
                 'host' => getenv('DB_HOST') ?: 'localhost',
                 'name' => getenv('DB_NAME') ?: 'umu_vote',
@@ -86,7 +86,7 @@ $config = [
         'client_secret' => getenv('GOOGLE_CLIENT_SECRET') ?: '',
         'redirect_uri' => $isLive
             ? 'https://umuelections.fwh.is/umu_vote/google-callback.php'
-            : 'http://localhost/election/google-callback.php',
+            : 'http://localhost/umu_vote/google-callback.php',
     ],
     'uploads' => [
         'contestants_dir' => __DIR__ . '/../uploads/contestants',

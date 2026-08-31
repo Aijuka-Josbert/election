@@ -12,7 +12,11 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         const total = Number(voteForm.dataset.total || 0);
-        const inputs = voteForm.querySelectorAll("input.star-input:checked");
+        // Both ballot modes share this shell: rating mode fills in
+        // .star-input (one per contestant), simple mode fills in
+        // .choice-input (one radio group per gender per category) — count
+        // whichever this form actually has.
+        const inputs = voteForm.querySelectorAll("input.star-input:checked, input.choice-input:checked");
         let filled = 0;
         inputs.forEach(() => {
             filled += 1;
@@ -43,11 +47,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
-            const ratingGroups = stepEl.querySelectorAll(".star-rating");
+            const ratingGroups = stepEl.querySelectorAll(".star-rating, .choice-group");
             let stepComplete = true;
 
             for (const group of ratingGroups) {
-                if (!group.querySelector("input.star-input:checked")) {
+                if (!group.querySelector("input.star-input:checked, input.choice-input:checked")) {
                     stepComplete = false;
                     break;
                 }
@@ -69,7 +73,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     updateVoteProgress();
 
-    document.querySelectorAll(".star-input").forEach((input) => {
+    document.querySelectorAll(".star-input, .choice-input").forEach((input) => {
         input.addEventListener("change", updateVoteProgress);
     });
 
@@ -88,9 +92,9 @@ document.addEventListener("DOMContentLoaded", () => {
             return false;
         }
 
-        const ratingGroups = stepEl.querySelectorAll(".star-rating");
+        const ratingGroups = stepEl.querySelectorAll(".star-rating, .choice-group");
         for (const group of ratingGroups) {
-            if (!group.querySelector("input.star-input:checked")) {
+            if (!group.querySelector("input.star-input:checked, input.choice-input:checked")) {
                 return false;
             }
         }
@@ -210,7 +214,7 @@ document.addEventListener("DOMContentLoaded", () => {
         e.stopPropagation();
         const activeStep = voteSteps[currentStep];
         if (!isStepComplete(activeStep)) {
-            alert("Please rate every contestant in this category before continuing.");
+            alert("Please complete every selection in this category before continuing.");
             return;
         }
 
@@ -229,7 +233,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (voteForm && voteSteps.length) {
         voteForm.addEventListener("change", (event) => {
-            if (!event.target.classList.contains("star-input")) {
+            if (!event.target.classList.contains("star-input") && !event.target.classList.contains("choice-input")) {
                 return;
             }
 
@@ -271,8 +275,10 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         });
     };
+    // Both ballot modes now share id="voteForm" and #submitVoteBtn (see
+    // the vote-step/stepper shell in vote.php), so a single guard call
+    // covers both — no separate "simpleVoteForm" id exists anymore.
     guardAgainstDoubleSubmit(document.getElementById("voteForm"), "#submitVoteBtn", "Submitting your vote…");
-    guardAgainstDoubleSubmit(document.getElementById("simpleVoteForm"), "button[type=submit]", "Submitting your vote…");
 
     const countdown = document.getElementById("countdown");
     const eventDate = countdown?.dataset?.eventDate;

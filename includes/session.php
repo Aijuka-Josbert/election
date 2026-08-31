@@ -85,6 +85,7 @@ if (!empty($pdo) && $pdo instanceof PDO) {
         private PDO $pdo;
         private string $table = 'sessions';
         private int $lockTimeout = 10;
+        private ?string $lockName = null;
 
         public function __construct(PDO $pdo)
         {
@@ -98,11 +99,53 @@ if (!empty($pdo) && $pdo instanceof PDO) {
 
         public function close(): bool
         {
+            $this->releaseLock();
             return true;
+        }
+
+        /**
+         * MySQL advisory lock (GET_LOCK) per session id, held for the
+         * duration of the request. Without this, two requests for the same
+         * session (a double-click, a second browser tab, a page loading
+         * while another is still submitting) can both read the same
+         * "before" session data and then both write back their own
+         * "after" version — whichever write lands last wins, silently
+         * discarding whatever the other request had just set (login
+         * state, has_voted, CSRF token, admin flag). This is the same
+         * class of race vote.php's per-voter FOR UPDATE lock closes for
+         * ballots; this closes it for session state itself.
+         */
+        private function acquireLock(string $id): void
+        {
+            $this->lockName = 'election_session_' . $id;
+            try {
+                $stmt = $this->pdo->prepare('SELECT GET_LOCK(?, ?)');
+                $stmt->execute([$this->lockName, $this->lockTimeout]);
+            } catch (PDOException $e) {
+                // If locking itself fails (e.g. no permission on a
+                // restrictive shared host), fall back to unlocked
+                // behavior rather than breaking sessions entirely.
+                $this->lockName = null;
+            }
+        }
+
+        private function releaseLock(): void
+        {
+            if ($this->lockName === null) {
+                return;
+            }
+            try {
+                $stmt = $this->pdo->prepare('SELECT RELEASE_LOCK(?)');
+                $stmt->execute([$this->lockName]);
+            } catch (PDOException $e) {
+                // ignore
+            }
+            $this->lockName = null;
         }
 
         public function read($id): string
         {
+            $this->acquireLock($id);
             try {
                 $stmt = $this->pdo->prepare("SELECT data FROM {$this->table} WHERE id = ? LIMIT 1");
                 $stmt->execute([$id]);
@@ -130,10 +173,12 @@ if (!empty($pdo) && $pdo instanceof PDO) {
         {
             try {
                 $stmt = $this->pdo->prepare("DELETE FROM {$this->table} WHERE id = ?");
-                return (bool)$stmt->execute([$id]);
+                $result = (bool)$stmt->execute([$id]);
             } catch (PDOException $e) {
-                return false;
+                $result = false;
             }
+            $this->releaseLock();
+            return $result;
         }
 
         public function gc(int $maxlifetime): int

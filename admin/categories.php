@@ -49,6 +49,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             log_admin_action($pdo, $newActive ? 'category_reactivated' : 'category_archived', "id={$categoryId}");
             $success = $newActive ? 'Category reactivated.' : 'Category archived.';
         }
+    } elseif ($action === 'bulk_set_all') {
+        // Quick fix for the common mistake of creating every category as
+        // male-only or female-only when "All" (both genders competing
+        // side by side) was actually intended — one click instead of
+        // editing each category individually.
+        $updated = $pdo->exec("UPDATE categories SET gender = 'all' WHERE gender != 'all'");
+        log_admin_action($pdo, 'categories_bulk_set_all', "rows_affected={$updated}");
+        $success = $updated > 0
+            ? "Done — {$updated} categor" . ($updated === 1 ? 'y' : 'ies') . " switched to \"All\" (both genders)."
+            : 'Every category was already set to "All".';
     } elseif ($action === 'update') {
         $categoryId = (int) ($_POST['category_id'] ?? 0);
         $name = trim($_POST['name'] ?? '');
@@ -130,13 +140,13 @@ require_once __DIR__ . '/partials/header.php';
                 </div>
                 <div class="mb-3">
                     <label class="form-label">Gender</label>
-                    <?php $currentGender = $editCategory ? normalize_category_gender($editCategory['gender'] ?? null) : ''; ?>
+                    <?php $currentGender = $editCategory ? normalize_category_gender($editCategory['gender'] ?? null) : 'all'; ?>
                     <select class="form-select" name="gender" required>
-                        <option value="">Select gender</option>
-                        <option value="male" <?php echo $currentGender === 'male' ? 'selected' : ''; ?>>Male</option>
-                        <option value="female" <?php echo $currentGender === 'female' ? 'selected' : ''; ?>>Female</option>
-                        <option value="all" <?php echo $currentGender === 'all' ? 'selected' : ''; ?>>All (for categories that apply to all contestants)</option>
+                        <option value="all" <?php echo $currentGender === 'all' ? 'selected' : ''; ?>>All — both genders compete side by side (recommended for most categories)</option>
+                        <option value="male" <?php echo $currentGender === 'male' ? 'selected' : ''; ?>>Male only</option>
+                        <option value="female" <?php echo $currentGender === 'female' ? 'selected' : ''; ?>>Female only</option>
                     </select>
+                    <small class="text-muted">Only choose Male-only / Female-only for a category that's genuinely restricted to one gender.</small>
                 </div>
                 <button class="btn btn-primary" type="submit"><?php echo $editCategory ? 'Save Changes' : 'Save Category'; ?></button>
                 <?php if ($editCategory): ?>
@@ -147,7 +157,16 @@ require_once __DIR__ . '/partials/header.php';
     </div>
     <div class="col-lg-7">
         <div class="card-dark p-4">
-            <h4 class="mb-3">Current Categories</h4>
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <h4 class="mb-0">Current Categories</h4>
+                <?php if ($categories): ?>
+                    <form method="post" onsubmit="return confirm('Switch every category that isn\'t already \"All\" to \"All\" (both genders)? This can be undone per-category via Edit.');">
+                        <?php echo csrf_field(); ?>
+                        <input type="hidden" name="action" value="bulk_set_all">
+                        <button class="btn btn-outline-warning btn-sm" type="submit">Set all categories to "All" (both genders)</button>
+                    </form>
+                <?php endif; ?>
+            </div>
             <?php if (!$categories): ?>
                 <p class="text-muted">No categories yet.</p>
             <?php else: ?>
