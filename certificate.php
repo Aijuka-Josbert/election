@@ -4,9 +4,20 @@ require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/helpers.php';
 require_once __DIR__ . '/includes/session.php';
 
-if (isset($pdo)) {
-    $config = apply_app_settings($config, $pdo);
+// db.php either sets $pdo to a real PDO connection or exits early on
+// failure — there is no code path where execution continues with $pdo
+// unset. This explicit check exists only to make that guarantee visible
+// to static analysis (editors/IDEs otherwise infer $pdo could be null
+// from the `isset($pdo)` checks used elsewhere for pages that tolerate a
+// missing DB) and to fail with a clear message instead of a bare
+// TypeError if that guarantee is ever broken by a future edit.
+if (!isset($pdo) || !($pdo instanceof PDO)) {
+    http_response_code(500);
+    echo 'Database connection is unavailable.';
+    exit;
 }
+
+$config = apply_app_settings($config, $pdo);
 
 $isAdmin = is_logged_in() && is_admin($config);
 $tzName = $config['app']['timezone'] ?? 'UTC';
@@ -41,9 +52,7 @@ if (!in_array($certificateGender, ['male', 'female'], true)) {
 }
 
 $votingMode = get_voting_mode($config);
-if (isset($pdo)) {
-    ensure_category_gender_enum($pdo);
-}
+ensure_category_gender_enum($pdo);
 $board = get_leaderboard($pdo, $votingMode);
 $winner = $board['overall_winners'][$certificateGender] ?? null;
 

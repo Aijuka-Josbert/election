@@ -43,6 +43,18 @@ foreach ($categories as $c) {
     }
 }
 
+// Duplicate category names (case-insensitive) — e.g. "Smartest" created
+// twice, once accidentally on top of an existing one instead of editing
+// it. Both copies work independently (separate votes), which fragments
+// results and makes an admin think votes are "missing" when they're
+// actually split across two category rows with the same name.
+$categoryNameCounts = [];
+foreach ($categories as $c) {
+    $key = strtolower(trim($c['name']));
+    $categoryNameCounts[$key][] = $c;
+}
+$duplicateCategoryNames = array_filter($categoryNameCounts, fn($rows) => count($rows) > 1);
+
 $contestantGenderCounts = ['male' => 0, 'female' => 0, 'other' => 0];
 foreach ($contestants as $c) {
     $g = (string) ($c['gender'] ?? '');
@@ -82,6 +94,23 @@ require_once __DIR__ . '/partials/header.php';
     </div>
 <?php else: ?>
     <div class="alert alert-success mb-4">No unrecognized gender values found on categories or contestants.</div>
+<?php endif; ?>
+
+<?php if ($duplicateCategoryNames): ?>
+    <div class="alert alert-warning mb-4">
+        <strong>Duplicate category names found.</strong> Each is a separate row with its own votes, which splits results
+        across two categories that look identical to voters — usually caused by re-adding a category instead of
+        editing the existing one.
+        <ul class="mb-0 mt-2">
+            <?php foreach ($duplicateCategoryNames as $rows): ?>
+                <li>
+                    "<?php echo h($rows[0]['name']); ?>" appears <?php echo count($rows); ?> times
+                    (IDs: <?php echo implode(', ', array_column($rows, 'id')); ?>) —
+                    <a class="alert-link" href="categories.php">review in Categories</a> and archive or delete the one(s) that shouldn't exist.
+                </li>
+            <?php endforeach; ?>
+        </ul>
+    </div>
 <?php endif; ?>
 
 <div class="row g-4 mb-4">
