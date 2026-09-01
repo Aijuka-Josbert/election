@@ -64,18 +64,24 @@ if ($showResults) {
     $overallWinners = $board['overall_winners'];
     $overallScores = array_filter($overallWinners); // used below only to gate the "no votes yet" message
 
-    // Overall contestant scores per gender, for the top-5 charts.
+    // Overall contestant scores per gender, for the top-5 charts. Filtered
+    // by v.mode = $votingMode, same as get_leaderboard() — this query was
+    // missing that filter, so it could blend votes cast under a different
+    // (e.g. previously-active) mode into these numbers instead of showing
+    // only the currently-active mode's results.
     $metricSql = $votingMode === 'simple' ? 'COUNT(v.id)' : 'AVG(v.score)';
-    $overallScoresRows = $pdo->query(
+    $overallScoresStmt = $pdo->prepare(
         "SELECT con.id AS contestant_id, con.name AS contestant_name, con.gender, con.photo,
                 $metricSql AS metric
          FROM contestants con
-         JOIN votes v ON v.contestant_id = con.id
+         JOIN votes v ON v.contestant_id = con.id AND v.mode = :mode
          JOIN categories c ON c.id = v.category_id
          WHERE c.gender = con.gender OR c.gender NOT IN (\"male\", \"female\")
          GROUP BY con.id, con.gender
          ORDER BY con.gender, metric DESC"
-    )->fetchAll();
+    );
+    $overallScoresStmt->execute(['mode' => $votingMode]);
+    $overallScoresRows = $overallScoresStmt->fetchAll();
 
     foreach ($overallScoresRows as $row) {
         $gender = $row['gender'] ?? '';
@@ -97,15 +103,17 @@ if ($showResults) {
     }
 
     // Category-wise scores for charting, separated by gender for "all" categories
-    $categoryAvgRows = $pdo->query(
+    $categoryAvgStmt = $pdo->prepare(
         "SELECT c.id AS category_id, c.name AS category_name, c.gender, con.gender AS contestant_gender, $metricSql AS metric
          FROM categories c
-         JOIN votes v ON v.category_id = c.id
+         JOIN votes v ON v.category_id = c.id AND v.mode = :mode
          JOIN contestants con ON con.id = v.contestant_id
          WHERE c.gender = con.gender OR c.gender NOT IN (\"male\", \"female\")
          GROUP BY c.id, con.gender
          ORDER BY c.gender, c.id, con.gender"
-    )->fetchAll();
+    );
+    $categoryAvgStmt->execute(['mode' => $votingMode]);
+    $categoryAvgRows = $categoryAvgStmt->fetchAll();
 
     foreach ($categoryAvgRows as $row) {
         $categoryGender = normalize_category_gender($row['gender'] ?? null);

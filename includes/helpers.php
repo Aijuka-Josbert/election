@@ -63,6 +63,13 @@ function site_background_color(array $config): string
     return $color !== '' && preg_match('/^#[0-9a-fA-F]{6}$/', $color) ? $color : '#f7f7f7';
 }
 
+/** Body text color — separate from background/primary/accent, same reasoning. */
+function site_text_color(array $config): string
+{
+    $color = trim((string) ($config['app']['theme_text_color'] ?? ''));
+    return $color !== '' && preg_match('/^#[0-9a-fA-F]{6}$/', $color) ? $color : '#121212';
+}
+
 /**
  * Contest titles ("Mr UMU Rubaga" / "Mrs UMU Rubaga") — admin-editable so
  * this codebase can be reused for a differently-named contest (e.g.
@@ -92,6 +99,7 @@ function site_theme_style_tag(array $config): string
     $primary = site_primary_color($config);
     $accent = site_accent_color($config);
     $background = site_background_color($config);
+    $text = site_text_color($config);
     // .hero's own background is a radial-gradient using hardcoded rgba()
     // literals (not var(--umu-red)/var(--umu-gold)), so overriding the
     // CSS variables alone doesn't touch it — it's what actually produces
@@ -100,7 +108,7 @@ function site_theme_style_tag(array $config): string
     // background color is what actually shows there, and neutralize the
     // ::after pseudo-element's separate gold overlay for the same reason.
     return '<style>:root{--umu-red:' . h($primary) . ';--umu-gold:' . h($accent) . ';}'
-        . 'body{background:' . h($background) . ' !important;}'
+        . 'body{background:' . h($background) . ';color:' . h($text) . ' !important;}'
         . '.hero{background:' . h($background) . ' !important;}'
         . '.hero::after{background:transparent !important;}</style>';
 }

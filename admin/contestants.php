@@ -89,7 +89,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!is_dir($uploadDir) && !mkdir($uploadDir, 0755, true)) {
             $errors[] = "Uploads folder is missing and could not be created at: {$uploadDir} — the web server process needs write permission on its parent directory. On Linux: sudo chown -R www-data:www-data " . dirname($uploadDir) . " && sudo chmod -R 775 " . dirname($uploadDir) . " (replace www-data with your actual web server user if different).";
         } elseif (!is_writable($uploadDir)) {
-            $errors[] = "Uploads folder exists but is not writable by the web server at: {$uploadDir} — fix with: sudo chown -R www-data:www-data {$uploadDir} && sudo chmod -R 775 {$uploadDir} (replace www-data with your actual web server user if different).";
+            // Self-heal attempt: if the PHP process actually owns this
+            // directory but the permission bits are just wrong (a common
+            // misconfiguration — e.g. it was created 755 by a deploy
+            // script running as a different user, or as 644), PHP can
+            // fix that itself. This only succeeds when PHP already owns
+            // the directory; it's a no-op (silently fails) when the
+            // problem is ownership, which still needs the server command
+            // below run once, manually, by whoever controls the server.
+            @chmod($uploadDir, 0775);
+            clearstatcache(true, $uploadDir);
+            if (!is_writable($uploadDir)) {
+                $errors[] = "Uploads folder exists but is not writable by the web server at: {$uploadDir} — fix with: sudo chown -R www-data:www-data {$uploadDir} && sudo chmod -R 775 {$uploadDir} (replace www-data with your actual web server user if different).";
+            }
         }
 
         $newPhotoPath = null;
@@ -167,7 +179,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!is_dir($uploadDir) && !mkdir($uploadDir, 0755, true)) {
             $errors[] = "Uploads folder is missing and could not be created at: {$uploadDir} — the web server process needs write permission on its parent directory. On Linux: sudo chown -R www-data:www-data " . dirname($uploadDir) . " && sudo chmod -R 775 " . dirname($uploadDir) . " (replace www-data with your actual web server user if different).";
         } elseif (!is_writable($uploadDir)) {
-            $errors[] = "Uploads folder exists but is not writable by the web server at: {$uploadDir} — fix with: sudo chown -R www-data:www-data {$uploadDir} && sudo chmod -R 775 {$uploadDir} (replace www-data with your actual web server user if different).";
+            // Self-heal attempt: if the PHP process actually owns this
+            // directory but the permission bits are just wrong (a common
+            // misconfiguration — e.g. it was created 755 by a deploy
+            // script running as a different user, or as 644), PHP can
+            // fix that itself. This only succeeds when PHP already owns
+            // the directory; it's a no-op (silently fails) when the
+            // problem is ownership, which still needs the server command
+            // below run once, manually, by whoever controls the server.
+            @chmod($uploadDir, 0775);
+            clearstatcache(true, $uploadDir);
+            if (!is_writable($uploadDir)) {
+                $errors[] = "Uploads folder exists but is not writable by the web server at: {$uploadDir} — fix with: sudo chown -R www-data:www-data {$uploadDir} && sudo chmod -R 775 {$uploadDir} (replace www-data with your actual web server user if different).";
+            }
         }
 
         // Validate photo presence and type

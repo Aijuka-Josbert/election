@@ -67,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'anony
     } else {
         $config['app']['logo_url'] = $logoUrlInput;
     }
-    foreach (['theme_primary_color' => 'Primary color', 'theme_accent_color' => 'Accent color', 'theme_background_color' => 'Background color'] as $colorField => $label) {
+    foreach (['theme_primary_color' => 'Primary color', 'theme_accent_color' => 'Accent color', 'theme_background_color' => 'Background color', 'theme_text_color' => 'Text color'] as $colorField => $label) {
         $colorInput = trim($_POST[$colorField] ?? '');
         if ($colorInput !== '' && !preg_match('/^#[0-9a-fA-F]{6}$/', $colorInput)) {
             $errors[] = "{$label} must be a hex color like #c8102e.";
@@ -122,6 +122,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'anony
             'theme_primary_color' => $config['app']['theme_primary_color'] ?? '',
             'theme_accent_color' => $config['app']['theme_accent_color'] ?? '',
             'theme_background_color' => $config['app']['theme_background_color'] ?? '',
+            'theme_text_color' => $config['app']['theme_text_color'] ?? '',
         ]);
     }
 
@@ -239,18 +240,29 @@ foreach ($votesByMode as $modeKey => $count) {
                     <input class="form-control" type="text" name="logo_url" value="<?php echo h($config['app']['logo_url'] ?? ''); ?>" placeholder="https://... or /assets/images/your-logo.png">
                     <small class="text-muted">Used for the navbar badge, browser tab icon, and certificates. Upload your image anywhere reachable and paste the URL here.</small>
                 </div>
+                <div class="col-12">
+                    <hr class="my-2" style="border-color: rgba(255,255,255,.15);">
+                    <p class="text-muted small mb-2">Colors — each one controls a different part of the page, shown below each field.</p>
+                </div>
                 <div class="col-md-3">
                     <label class="form-label">Primary color</label>
                     <input class="form-control form-control-color" type="color" name="theme_primary_color" value="<?php echo h(site_primary_color($config)); ?>">
+                    <small class="text-muted">Buttons, links, and highlighted UI elements.</small>
                 </div>
                 <div class="col-md-3">
                     <label class="form-label">Accent color</label>
                     <input class="form-control form-control-color" type="color" name="theme_accent_color" value="<?php echo h(site_accent_color($config)); ?>">
+                    <small class="text-muted">Badges (like the gold "Rate 1-5" tag) and secondary highlights.</small>
                 </div>
                 <div class="col-md-3">
                     <label class="form-label">Background color</label>
                     <input class="form-control form-control-color" type="color" name="theme_background_color" value="<?php echo h(site_background_color($config)); ?>">
-                    <small class="text-muted">The page's base background, separate from the brand colors above.</small>
+                    <small class="text-muted">The page's base background, including the homepage hero section.</small>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Text color</label>
+                    <input class="form-control form-control-color" type="color" name="theme_text_color" value="<?php echo h(site_text_color($config)); ?>">
+                    <small class="text-muted">Body text color — make sure it stays readable against your background color above.</small>
                 </div>
             </div>
         </div>

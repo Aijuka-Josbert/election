@@ -30,8 +30,16 @@ $resultsPublic = (bool) ($config['app']['results_public'] ?? false);
 // page does, and stays correct once the simple one-click mode is in use.
 $board = get_leaderboard($pdo, $votingMode);
 $overallWinners = $board['overall_winners'];
+
+$genderRestrictedCount = (int) $pdo->query("SELECT COUNT(*) FROM categories WHERE gender IN ('male','female')")->fetchColumn();
 ?>
 <h2 class="mb-4">Dashboard</h2>
+<?php if ($genderRestrictedCount > 0): ?>
+    <div class="alert alert-warning">
+        <strong><?php echo $genderRestrictedCount; ?></strong> categor<?php echo $genderRestrictedCount === 1 ? 'y is' : 'ies are'; ?>
+        restricted to one gender — <a class="alert-link" href="categories.php">review in Categories</a> if that's not intentional.
+    </div>
+<?php endif; ?>
 
 <div class="card-dark p-4 mb-4">
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">

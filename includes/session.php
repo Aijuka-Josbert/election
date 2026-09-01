@@ -44,16 +44,29 @@ ini_set('session.gc_divisor', '100');
 
 /*
 |---------------------------------------------------------------------------
-| Try to load DB ($pdo) from includes/db.php
+| Load DB ($pdo) from includes/db.php, unless a calling script already
+| did so.
 |---------------------------------------------------------------------------
+| BUG FIXED HERE: this used to unconditionally set $pdo = null and then
+| require_once db.php "to populate it" — but require_once tracks files by
+| resolved path, so if db.php was already required earlier in the same
+| request (e.g. certificate.php does config -> db.php -> helpers.php ->
+| session.php, in that order), this second require_once is a silent
+| no-op. $pdo had already been reset to null on the line above it and
+| never got repopulated, so every page that happened to require db.php
+| before session.php lost its database connection entirely for the rest
+| of the request — with no error, just $pdo silently becoming null. Only
+| reset/reload if nothing already gave us a working connection.
 */
-$pdo = null;
-$dbPath = __DIR__ . '/db.php';
-if (is_file($dbPath)) {
-    try {
-        require_once $dbPath; // should populate $pdo (PDO) in your project
-    } catch (Throwable $e) {
-        $pdo = null;
+if (!isset($pdo) || !($pdo instanceof PDO)) {
+    $pdo = null;
+    $dbPath = __DIR__ . '/db.php';
+    if (is_file($dbPath)) {
+        try {
+            require_once $dbPath; // should populate $pdo (PDO) in your project
+        } catch (Throwable $e) {
+            $pdo = null;
+        }
     }
 }
 

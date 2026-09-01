@@ -110,10 +110,18 @@ if ($editId > 0) {
 }
 
 $categories = $pdo->query('SELECT * FROM categories ORDER BY active DESC, gender, name')->fetchAll();
+$genderRestrictedCount = count(array_filter($categories, fn($c) => in_array($c['gender'] ?? '', ['male', 'female'], true)));
 
 require_once __DIR__ . '/partials/header.php';
 ?>
 <h2 class="mb-4">Categories</h2>
+<?php if ($genderRestrictedCount > 0): ?>
+    <div class="alert alert-warning">
+        <strong><?php echo $genderRestrictedCount; ?></strong> categor<?php echo $genderRestrictedCount === 1 ? 'y is' : 'ies are'; ?>
+        currently restricted to one gender. If that's not intentional — most categories in a contest like this should be
+        "All" so both genders compete side by side — use the button below to fix every category at once, no SQL needed.
+    </div>
+<?php endif; ?>
 <?php if ($success): ?>
     <div class="alert alert-success"><?php echo h($success); ?></div>
 <?php endif; ?>
