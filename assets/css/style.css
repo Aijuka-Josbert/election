@@ -205,7 +205,12 @@ h1, h2, h3, h4 {
     color: #111111;
     margin: 0;
 }
-
+.text-muted {
+    color: #770606 !important;
+}
+.title{
+    color: #9fa105;
+}
 .gender-section-header small {
     color: var(--umu-gold);
     font-size: 0.75rem;

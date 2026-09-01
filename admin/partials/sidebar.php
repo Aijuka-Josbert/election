@@ -14,7 +14,7 @@ if (!isset($activePage)) {
 ?>
 <aside class="admin-sidebar">
     <div class="mb-4">
-        <h4 class="mb-1"><?php echo h(site_name($config)); ?></h4>
+        <h4 class="title mb-1"><?php echo h(site_name($config)); ?></h4>
         <small class="text-muted">Admin Panel</small>
     </div>
     <a class="<?php echo $activePage === 'dashboard' ? 'active' : ''; ?>" href="<?php echo h($baseUrl . '/admin/index.php'); ?>">
