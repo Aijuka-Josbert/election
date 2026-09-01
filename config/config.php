@@ -79,13 +79,16 @@ $config = [
         'category_limit' => 10,
         'admin_emails' => [
             'josbert.aijuka@stud.umu.ac.ug',
+            'nakanwagi.angela@stud.umu.ac.ug',
+            'ian.kwagala@stud.umu.ac.ug',
+            'nabayego.joanitah@stud.umu.ac.ug',
         ],
     ],
     'google' => [
         'client_id' => getenv('GOOGLE_CLIENT_ID') ?: '',
         'client_secret' => getenv('GOOGLE_CLIENT_SECRET') ?: '',
         'redirect_uri' => $isLive
-            ? 'https://umuelections.fwh.is/umu_vote/google-callback.php'
+            ? 'https://umuelections.fwh.is/google-callback.php'
             : 'http://localhost/election/google-callback.php',
     ],
     'uploads' => [

@@ -4,6 +4,7 @@
  * Small utility helpers used across the app for escaping, URL helpers,
  * environment resolution and simple app settings persistence.
  */
+ini_set('pcre.jit', '0');
 
 function h(string $value): string
 {
