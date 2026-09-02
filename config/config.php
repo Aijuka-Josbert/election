@@ -94,6 +94,9 @@ $config = [
         'category_limit' => 10,
         'admin_emails' => [
             'josbert.aijuka@stud.umu.ac.ug',
+            'nakanwagi.angela@stud.umu.ac.ug',
+            'ian.kwagala@stud.umu.ac.ug',
+            'nabayego.joanitah@stud.umu.ac.ug',
         ],
     ],
     'google' => [

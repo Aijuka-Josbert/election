@@ -277,7 +277,7 @@ foreach ($votesByMode as $modeKey => $count) {
                 <div class="col-md-6">
                     <label class="form-label">Logo — upload an image</label>
                     <input class="form-control" type="file" name="logo_upload" accept="image/jpeg,image/png,image/webp">
-                    <small class="text-muted">JPG, PNG, or WEBP. Automatically resized and compressed. Uploading replaces the URL below.</small>
+                    <small class="text-muted">JPG, PNG, or WEBP</small>
                     <?php if (!empty($config['app']['logo_url'])): ?>
                         <div class="mt-2">
                             <img src="<?php echo h(asset_url($config['app']['logo_url'], $config)); ?>" alt="Current logo" style="height: 48px; border-radius: 6px;">
