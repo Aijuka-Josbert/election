@@ -104,7 +104,7 @@ $genderRestrictedCount = (int) $pdo->query("SELECT COUNT(*) FROM categories WHER
                     <div class="d-flex gap-3 align-items-center">
                         <img class="contestant-img" style="width: 110px; height: 110px;" src="<?php echo h(asset_url($winner['photo'], $config)); ?>" alt="<?php echo h($winner['contestant_name']); ?>">
                         <div>
-                            <h5 class="mb-1"><?php echo h($winner['contestant_name']); ?></h5>
+                            <h5 class="mb-1"><?php echo h(leaderboard_winner_label($winner)); ?></h5>
                             <div class="text-muted"><?php echo h(format_leaderboard_metric($winner, $votingMode)); ?></div>
                         </div>
                     </div>

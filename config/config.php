@@ -28,6 +28,21 @@ if ($isLive) {
 }
 
 /*
+ * Some hosting environments (containers/shared hosts with restrictive
+ * security policies — SELinux, grsecurity, some Docker seccomp profiles)
+ * don't allow a process to mark memory pages executable, which is what
+ * PCRE's JIT compiler needs. PHP still works fine without it — regexes
+ * just run through PCRE's normal interpreter, which is negligibly slower
+ * for this app's usage (a handful of preg_match() calls per request, not
+ * a hot loop) — but every preg_match() call would otherwise throw a
+ * "PCRE JIT will be disabled" warning, which is ugly, leaks the server's
+ * file path, and (if the environment ever flips display_errors on by
+ * mistake) would be visible to every visitor on every page. Disabling
+ * JIT outright avoids the warning entirely rather than just hiding it.
+ */
+ini_set('pcre.jit', '0');
+
+/*
  * SECURITY: real credentials must never live in this tracked file — this
  * repo is public on GitHub. Every value below is a safe placeholder that
  * only works together with config/config.local.php (untracked, see
@@ -79,9 +94,6 @@ $config = [
         'category_limit' => 10,
         'admin_emails' => [
             'josbert.aijuka@stud.umu.ac.ug',
-            'nakanwagi.angela@stud.umu.ac.ug',
-            'ian.kwagala@stud.umu.ac.ug',
-            'nabayego.joanitah@stud.umu.ac.ug',
         ],
     ],
     'google' => [

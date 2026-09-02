@@ -138,6 +138,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!move_uploaded_file($photo['tmp_name'], $destination)) {
                     $errors[] = 'Unable to save the photo.';
                 } else {
+                    // Best-effort — see compress_uploaded_image() doc
+                    // comment: silently keeps the original-size upload
+                    // if GD is unavailable or the image can't be read,
+                    // rather than blocking the upload over it.
+                    compress_uploaded_image($destination);
                     $newPhotoPath = $config['uploads']['contestants_url'] . '/' . $fileName;
                 }
             }
@@ -220,6 +225,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!move_uploaded_file($photo['tmp_name'], $destination)) {
                 $errors[] = 'Unable to save the photo.';
             } else {
+                compress_uploaded_image($destination);
                 $photoPath = $config['uploads']['contestants_url'] . '/' . $fileName;
                 $insert = $pdo->prepare('INSERT INTO contestants (name, gender, photo, bio, active) VALUES (?, ?, ?, ?, 1)');
                 $insert->execute([$name, $gender, $photoPath, $bio ?: null]);

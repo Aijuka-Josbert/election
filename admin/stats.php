@@ -135,7 +135,7 @@ require_once __DIR__ . '/partials/header.php';
                             <td><?php echo h($cat['category_name']); ?></td>
                             <td>
                                 <?php if (!empty($cat['female'])): ?>
-                                    <?php echo h($cat['female']['contestant_name']); ?>
+                                    <?php echo h(leaderboard_winner_label($cat['female'])); ?>
                                 <?php else: ?>
                                     <span class="text-muted">—</span>
                                 <?php endif; ?>
@@ -143,7 +143,7 @@ require_once __DIR__ . '/partials/header.php';
                             <td><?php echo !empty($cat['female']) ? h(format_leaderboard_metric($cat['female'], $votingMode)) : '—'; ?></td>
                             <td>
                                 <?php if (!empty($cat['male'])): ?>
-                                    <?php echo h($cat['male']['contestant_name']); ?>
+                                    <?php echo h(leaderboard_winner_label($cat['male'])); ?>
                                 <?php else: ?>
                                     <span class="text-muted">—</span>
                                 <?php endif; ?>

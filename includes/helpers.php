@@ -4,7 +4,6 @@
  * Small utility helpers used across the app for escaping, URL helpers,
  * environment resolution and simple app settings persistence.
  */
-ini_set('pcre.jit', '0');
 
 function h(string $value): string
 {
@@ -36,6 +35,47 @@ function site_logo_url(array $config): string
 {
     $logo = trim((string) ($config['app']['logo_url'] ?? ''));
     return $logo !== '' ? $logo : asset_url('assets/images/Untitled.jpeg', $config);
+}
+
+/**
+ * Resolves the configured logo to a base64 data: URI for embedding
+ * directly into generated PDFs (certificates). Deliberately does NOT
+ * fetch remote URLs — certificate generation runs with dompdf's
+ * isRemoteEnabled off, since fetching an admin-supplied URL server-side
+ * is an SSRF vector (it could point at internal network addresses). Only
+ * a local file already on this server's disk (an uploaded logo, or the
+ * bundled default) is ever embedded; an external logo_url falls back to
+ * the text-only certificate heading instead of a broken/missing image.
+ */
+function site_logo_data_uri(array $config): ?string
+{
+    $logo = trim((string) ($config['app']['logo_url'] ?? ''));
+    $relativePath = $logo !== '' ? $logo : 'assets/images/Untitled.jpeg';
+
+    if (preg_match('#^https?://#i', $relativePath)) {
+        return null; // external URL — not fetched, see doc comment above
+    }
+
+    $fullPath = __DIR__ . '/../' . ltrim($relativePath, '/');
+    $realPath = realpath($fullPath);
+    $projectRoot = realpath(__DIR__ . '/..');
+    if (!$realPath || !$projectRoot || strpos($realPath, $projectRoot) !== 0 || !is_file($realPath)) {
+        return null; // missing, or path escapes the project root
+    }
+
+    $mime = match (strtolower(pathinfo($realPath, PATHINFO_EXTENSION))) {
+        'png' => 'image/png',
+        'gif' => 'image/gif',
+        'webp' => 'image/webp',
+        default => 'image/jpeg',
+    };
+
+    $data = @file_get_contents($realPath);
+    if ($data === false) {
+        return null;
+    }
+
+    return 'data:' . $mime . ';base64,' . base64_encode($data);
 }
 
 function site_primary_color(array $config): string
@@ -325,6 +365,69 @@ function normalize_category_gender(?string $value): string
         return $v;
     }
     return 'all';
+}
+
+/**
+ * Resizes and re-compresses an uploaded image in place — applied to both
+ * contestant photos and the site logo. Every upload through this app was
+ * previously stored at whatever size/quality the voter's phone produced
+ * (often several MB per photo), which adds up fast across dozens of
+ * contestants and slows the site down for every visitor on every page
+ * that shows a photo. This caps the longest side at a sane maximum and
+ * re-encodes at a quality level that's visually close to lossless for a
+ * headshot-style photo while cutting file size dramatically.
+ *
+ * Requires the GD extension (ext-gd) — near-universal on shared PHP
+ * hosting. If GD isn't available, or the image is corrupt/unreadable,
+ * this fails closed by leaving the original upload untouched rather than
+ * blocking the upload entirely — a slightly-large photo is a much better
+ * outcome than "you can't add contestants because an image extension is
+ * missing."
+ */
+function compress_uploaded_image(string $filePath, int $maxDimension = 1600, int $jpegQuality = 82): bool
+{
+    if (!function_exists('imagecreatefromstring')) {
+        return false;
+    }
+
+    $raw = @file_get_contents($filePath);
+    if ($raw === false) {
+        return false;
+    }
+
+    $image = @imagecreatefromstring($raw);
+    if ($image === false) {
+        return false;
+    }
+
+    $width = imagesx($image);
+    $height = imagesy($image);
+    $longestSide = max($width, $height);
+
+    if ($longestSide > $maxDimension) {
+        $scale = $maxDimension / $longestSide;
+        $newWidth = (int) round($width * $scale);
+        $newHeight = (int) round($height * $scale);
+        $resized = imagecreatetruecolor($newWidth, $newHeight);
+        // Preserve transparency for PNG/GIF/WebP instead of flattening
+        // it to black.
+        imagealphablending($resized, false);
+        imagesavealpha($resized, true);
+        imagecopyresampled($resized, $image, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
+        imagedestroy($image);
+        $image = $resized;
+    }
+
+    $extension = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+    $ok = match ($extension) {
+        'png' => imagepng($image, $filePath, 6), // 0 (none) - 9 (max); 6 is a good size/speed balance
+        'gif' => imagegif($image, $filePath),
+        'webp' => function_exists('imagewebp') ? imagewebp($image, $filePath, $jpegQuality) : false,
+        default => imagejpeg($image, $filePath, $jpegQuality),
+    };
+
+    imagedestroy($image);
+    return (bool) $ok;
 }
 
 /**
@@ -628,26 +731,36 @@ function get_leaderboard(PDO $pdo, string $mode): array
          JOIN contestants con ON con.id = v.contestant_id
             AND (c.gender = con.gender OR c.gender NOT IN (\"male\", \"female\"))
          GROUP BY c.id, con.id
-         ORDER BY c.id, con.gender, metric DESC"
+         ORDER BY c.id, con.gender, metric DESC, con.id ASC"
     );
     $categoryRows->execute(['mode' => $mode]);
     $categoryRows = $categoryRows->fetchAll();
 
+    // Ties: without an explicit tiebreaker, two contestants with the same
+    // metric have no defined order — which one a query returns "first"
+    // (and therefore which one this app calls "the winner") is not
+    // guaranteed to be consistent, i.e. effectively a coin flip picked by
+    // MySQL's internal storage order rather than by the app. `con.id ASC`
+    // above makes that pick deterministic (same input always produces the
+    // same output) — but deterministic isn't the same as fair, so ties
+    // are also tracked explicitly below (tied_with) instead of silently
+    // hidden behind a confident-looking single "winner".
     $categoryLeaders = [];
+    $categoryTieGroups = []; // key => [contestant_name, ...] all sharing the top metric
     foreach ($categoryRows as $row) {
         $contestantGender = $row['contestant_gender'] ?? 'male';
-        // normalize_category_gender(), not a raw === 'all' check: a
-        // category whose gender got corrupted to '' by the enum-
-        // truncation bug (see ensure_category_gender_enum()) still needs
-        // to split male/female into separate leader slots here — without
-        // this, both genders' leaders would collide on the same key and
-        // whichever has the higher metric would silently overwrite the
-        // other, losing that gender's category leader entirely.
         $categoryGenderNormalized = normalize_category_gender($row['gender'] ?? null);
         $key = $categoryGenderNormalized === 'all' ? $row['category_id'] . '_' . $contestantGender : $row['category_id'];
         if (!isset($categoryLeaders[$key]) || $row['metric'] > $categoryLeaders[$key]['metric']) {
             $categoryLeaders[$key] = $row;
+            $categoryTieGroups[$key] = [$row['contestant_name']];
+        } elseif ((float) $row['metric'] === (float) $categoryLeaders[$key]['metric']) {
+            $categoryTieGroups[$key][] = $row['contestant_name'];
         }
+    }
+    foreach ($categoryLeaders as $key => $row) {
+        $others = array_diff($categoryTieGroups[$key], [$row['contestant_name']]);
+        $categoryLeaders[$key]['tied_with'] = array_values($others);
     }
 
     $overallRows = $pdo->prepare(
@@ -658,7 +771,7 @@ function get_leaderboard(PDO $pdo, string $mode): array
          JOIN categories c ON c.id = v.category_id
          WHERE c.gender = con.gender OR c.gender NOT IN (\"male\", \"female\")
          GROUP BY con.id, con.gender
-         ORDER BY con.gender, metric DESC"
+         ORDER BY con.gender, metric DESC, con.id ASC"
     );
     $overallRows->execute(['mode' => $mode]);
     $overallRows = $overallRows->fetchAll();
@@ -667,6 +780,7 @@ function get_leaderboard(PDO $pdo, string $mode): array
     // the results/winners screens.
     $overallWinners = ['female' => null, 'male' => null];
     $overallAll = ['female' => [], 'male' => []];
+    $overallTieGroups = ['female' => [], 'male' => []];
     foreach ($overallRows as $row) {
         $gender = $row['gender'] ?? '';
         if ($gender !== 'male' && $gender !== 'female') {
@@ -675,6 +789,15 @@ function get_leaderboard(PDO $pdo, string $mode): array
         $overallAll[$gender][] = $row;
         if ($overallWinners[$gender] === null) {
             $overallWinners[$gender] = $row;
+            $overallTieGroups[$gender] = [$row['contestant_name']];
+        } elseif ((float) $row['metric'] === (float) $overallWinners[$gender]['metric']) {
+            $overallTieGroups[$gender][] = $row['contestant_name'];
+        }
+    }
+    foreach (['female', 'male'] as $gender) {
+        if ($overallWinners[$gender] !== null) {
+            $others = array_diff($overallTieGroups[$gender], [$overallWinners[$gender]['contestant_name']]);
+            $overallWinners[$gender]['tied_with'] = array_values($others);
         }
     }
 
@@ -686,6 +809,25 @@ function get_leaderboard(PDO $pdo, string $mode): array
         // admin/stats.php's "Overall Rankings" table.
         'overall_all' => $overallAll,
     ];
+}
+
+/**
+ * "Winner Name" or "Winner Name (tied with Other, Another)" — call this
+ * instead of reading contestant_name directly wherever a winner is
+ * announced (results, certificates, the post-vote screen), so a genuine
+ * tie is never presented as an unqualified single winner.
+ */
+function leaderboard_winner_label(?array $row): string
+{
+    if (!$row) {
+        return '';
+    }
+    $name = (string) $row['contestant_name'];
+    $tiedWith = $row['tied_with'] ?? [];
+    if (!$tiedWith) {
+        return $name;
+    }
+    return $name . ' (tied with ' . implode(', ', $tiedWith) . ')';
 }
 
 function format_leaderboard_metric(?array $row, string $mode): string

@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/vendor/autoload.php'; // Dompdf\Dompdf — see composer.json
 $config = require __DIR__ . '/config/config.php';
 require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/helpers.php';
@@ -56,81 +57,109 @@ ensure_category_gender_enum($pdo);
 $board = get_leaderboard($pdo, $votingMode);
 $winner = $board['overall_winners'][$certificateGender] ?? null;
 
-$winnerName = $winner['contestant_name'] ?? 'TBD';
+$winnerName = leaderboard_winner_label($winner) ?: 'TBD';
 $winnerScoreLine = $winner ? format_leaderboard_metric($winner, $votingMode) : 'N/A';
-$eventName = $config['app']['event_name'] ?? 'UMU Rubaga Varsity Ball';
 $eventDate = $config['app']['event_date'] ?? '';
 
 $titleLabel = $certificateGender === 'male' ? site_male_title($config) : site_female_title($config);
-$certificateHeading = $certificateGender === 'male'
-    ? 'Certificate of Appreciation - Male Winner'
-    : 'Certificate of Appreciation - Female Winner';
+$institutionName = site_name($config);
+$primaryColor = site_primary_color($config);
+$accentColor = site_accent_color($config);
+$logoDataUri = site_logo_data_uri($config);
+$issuedOn = date('F j, Y');
+$eventDateLabel = $eventDate !== '' ? date('F j, Y', strtotime($eventDate)) : null;
 
-function pdf_escape(string $value): string
-{
-    return str_replace(['\\', '(', ')'], ['\\\\', '\\(', '\\)'], $value);
+function certificate_html(
+    string $institutionName,
+    string $titleLabel,
+    string $winnerName,
+    string $winnerScoreLine,
+    ?string $eventDateLabel,
+    string $issuedOn,
+    string $primaryColor,
+    string $accentColor,
+    ?string $logoDataUri
+): string {
+    $logoTag = $logoDataUri
+        ? '<img class="logo" src="' . h($logoDataUri) . '">'
+        : '';
+    $footerRight = $eventDateLabel !== null
+        ? '<td>Event date: ' . h($eventDateLabel) . '</td><td class="right">Issued: ' . h($issuedOn) . '</td>'
+        : '<td colspan="2" class="right">Issued: ' . h($issuedOn) . '</td>';
+
+    return <<<HTML
+<html>
+<head>
+<style>
+    @page { size: 842pt 595pt; margin: 0; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; width: 842pt; height: 595pt; font-family: 'DejaVu Sans', sans-serif; }
+    .sheet { position: relative; width: 842pt; height: 595pt; }
+    .border { position: absolute; top: 24pt; left: 24pt; right: 24pt; bottom: 24pt; border: 2pt solid {$primaryColor}; }
+    .corner { position: absolute; width: 0; height: 0; border-style: solid; }
+    .corner-tl { top: 0; left: 0; border-width: 80pt 80pt 0 0; border-color: {$primaryColor} transparent transparent transparent; }
+    .corner-br { bottom: 0; right: 0; border-width: 0 0 80pt 80pt; border-color: transparent transparent {$accentColor} transparent; }
+    .logo { position: absolute; top: 45pt; left: 50%; margin-left: -30pt; width: 60pt; height: 60pt; }
+    .content { position: absolute; top: 118pt; left: 70pt; right: 70pt; text-align: center; }
+    .eyebrow { color: {$primaryColor}; letter-spacing: 4pt; font-size: 12pt; font-weight: bold; text-transform: uppercase; }
+    h1 { font-size: 26pt; margin: 6pt 0 4pt; color: #1a1a1a; }
+    .presented { font-size: 11pt; color: #777; }
+    .title-label { font-size: 13pt; letter-spacing: 2pt; color: {$accentColor}; text-transform: uppercase; margin-top: 14pt; }
+    .winner-name { font-size: 32pt; font-weight: bold; margin: 6pt 0; color: #1a1a1a; }
+    .score-line { font-size: 12pt; color: #777; }
+    .footer { position: absolute; bottom: 48pt; left: 90pt; right: 90pt; }
+    .footer table { width: 100%; }
+    .footer td { font-size: 10pt; color: #999; border-top: 1pt solid #999; padding-top: 6pt; }
+    .footer .right { text-align: right; }
+</style>
+</head>
+<body>
+<div class="sheet">
+    <div class="border"></div>
+    <div class="corner corner-tl"></div>
+    <div class="corner corner-br"></div>
+    {$logoTag}
+    <div class="content">
+        <div class="eyebrow">Certificate of Appreciation</div>
+        <h1>{$institutionName}</h1>
+        <div class="presented">This certificate is proudly presented to</div>
+        <div class="title-label">{$titleLabel}</div>
+        <div class="winner-name">{$winnerName}</div>
+        <div class="score-line">{$winnerScoreLine}</div>
+    </div>
+    <div class="footer">
+        <table><tr>{$footerRight}</tr></table>
+    </div>
+</div>
+</body>
+</html>
+HTML;
 }
 
-$issuedOn = date('Y-m-d');
-$lines = [
-    ['text' => $certificateHeading, 'size' => 24, 'x' => 72, 'y' => 780, 'font' => 'F2'],
-    ['text' => 'This certificate recognizes the top winner of the', 'size' => 12, 'x' => 72, 'y' => 745],
-    ['text' => $eventName, 'size' => 18, 'x' => 72, 'y' => 720],
-    ['text' => '', 'size' => 10, 'x' => 72, 'y' => 690],
-    ['text' => strtoupper($titleLabel) . ' WINNER', 'size' => 12, 'x' => 72, 'y' => 670],
-    ['text' => $winnerName, 'size' => 22, 'x' => 72, 'y' => 640, 'font' => 'F2'],
-    ['text' => $winnerScoreLine, 'size' => 12, 'x' => 72, 'y' => 612],
-];
+$html = certificate_html(
+    h($institutionName),
+    h(strtoupper($titleLabel)) . ' WINNER',
+    h($winnerName),
+    h($winnerScoreLine),
+    $eventDateLabel,
+    $issuedOn,
+    $primaryColor,
+    $accentColor,
+    $logoDataUri
+);
 
-if ($eventDate !== '') {
-    $lines[] = ['text' => 'Event date: ' . $eventDate, 'size' => 10, 'x' => 72, 'y' => 560];
-}
-
-$lines[] = ['text' => 'Issued on ' . $issuedOn, 'size' => 10, 'x' => 72, 'y' => 560];
-
-$content = "";
-foreach ($lines as $line) {
-    $font = $line['font'] ?? 'F1';
-    $content .= "BT\n";
-    $content .= "/{$font} {$line['size']} Tf\n";
-    $content .= "{$line['x']} {$line['y']} Td\n";
-    $content .= "(" . pdf_escape($line['text']) . ") Tj\n";
-    $content .= "ET\n";
-}
-
-$objects = [];
-$objects[] = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
-$objects[] = "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n";
-$objects[] = "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R /F2 6 0 R >> >> /Contents 5 0 R >>\nendobj\n";
-$objects[] = "4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n";
-$objects[] = "5 0 obj\n<< /Length " . strlen($content) . " >>\nstream\n" . $content . "endstream\nendobj\n";
-// Bug fix: this was "/BaseFont /Stonehenge", which is not a real PDF
-// standard font — some PDF viewers rendered the bold heading/name lines
-// as blank or fell back unpredictably. Helvetica-Bold is a guaranteed
-// standard-14 font in every PDF reader.
-$objects[] = "6 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n";
-
-$pdf = "%PDF-1.4\n";
-$offsets = [0];
-foreach ($objects as $object) {
-    $offsets[] = strlen($pdf);
-    $pdf .= $object;
-}
-
-$xrefPosition = strlen($pdf);
-$pdf .= "xref\n0 " . count($offsets) . "\n";
-$pdf .= "0000000000 65535 f \n";
-for ($i = 1; $i < count($offsets); $i++) {
-    $pdf .= sprintf("%010d 00000 n \n", $offsets[$i]);
-}
-
-$pdf .= "trailer\n<< /Size " . count($offsets) . " /Root 1 0 R >>\n";
-$pdf .= "startxref\n" . $xrefPosition . "\n%%EOF";
+$options = new \Dompdf\Options();
+$options->set('isRemoteEnabled', false); // see site_logo_data_uri() doc comment — no server-side fetches
+$options->set('defaultFont', 'DejaVu Sans');
+$dompdf = new \Dompdf\Dompdf($options);
+$dompdf->loadHtml($html);
+$dompdf->render();
+$pdf = $dompdf->output();
 
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
 header('Expires: 0');
 header('Content-Type: application/pdf');
-header('Content-Disposition: attachment; filename="umu_vote_' . $certificateGender . '_winner_certificate_' . date('Ymd_His') . '.pdf"');
+header('Content-Disposition: attachment; filename="' . $certificateGender . '_winner_certificate_' . date('Ymd_His') . '.pdf"');
 header('Content-Length: ' . strlen($pdf));
 echo $pdf;

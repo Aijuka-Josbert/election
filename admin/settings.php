@@ -61,10 +61,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'anony
     $config['app']['event_tagline'] = trim($_POST['event_tagline'] ?? '');
     $config['app']['male_title'] = trim($_POST['male_title'] ?? '');
     $config['app']['female_title'] = trim($_POST['female_title'] ?? '');
+
+    // Logo: an uploaded file (if provided) takes priority over the URL
+    // field. Uploading compresses/resizes the same way contestant photos
+    // do, then stores the resulting local path in app_settings.logo_url
+    // — the same field the URL text input writes to, so
+    // site_logo_url()/site_logo_data_uri() don't need to know which
+    // source it came from.
     $logoUrlInput = trim($_POST['logo_url'] ?? '');
-    if ($logoUrlInput !== '' && !preg_match('#^https?://#i', $logoUrlInput) && !str_starts_with($logoUrlInput, '/')) {
+    if (!empty($_FILES['logo_upload']['name']) && ($_FILES['logo_upload']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+        $logoFile = $_FILES['logo_upload'];
+        if ($logoFile['error'] !== UPLOAD_ERR_OK) {
+            $errors[] = 'Logo upload failed. Please try again.';
+        } else {
+            $logoMime = @mime_content_type($logoFile['tmp_name']);
+            $logoExtMap = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
+            if (!isset($logoExtMap[$logoMime])) {
+                $errors[] = 'Logo must be a JPG, PNG, or WEBP image.';
+            } else {
+                $logoDir = __DIR__ . '/../uploads/branding';
+                if (!is_dir($logoDir) && !mkdir($logoDir, 0775, true)) {
+                    $errors[] = "Branding uploads folder could not be created at: {$logoDir} — same fix as the contestants uploads folder: sudo chown -R www-data:www-data " . dirname($logoDir) . " && sudo chmod -R 775 " . dirname($logoDir) . ".";
+                } else {
+                    @chmod($logoDir, 0775);
+                    if (!is_writable($logoDir)) {
+                        $errors[] = "Branding uploads folder exists but is not writable at: {$logoDir} — fix with: sudo chown -R www-data:www-data {$logoDir} && sudo chmod -R 775 {$logoDir}.";
+                    } else {
+                        $logoFileName = 'logo_' . uniqid('', true) . '.' . $logoExtMap[$logoMime];
+                        $logoDestination = $logoDir . '/' . $logoFileName;
+                        if (!move_uploaded_file($logoFile['tmp_name'], $logoDestination)) {
+                            $errors[] = 'Unable to save the uploaded logo.';
+                        } else {
+                            compress_uploaded_image($logoDestination, 800, 85); // logos are small/simple — 800px is plenty
+                            $logoUrlInput = 'uploads/branding/' . $logoFileName;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if ($logoUrlInput !== '' && !preg_match('#^https?://#i', $logoUrlInput) && !str_starts_with($logoUrlInput, '/') && !str_starts_with($logoUrlInput, 'uploads/')) {
         $errors[] = 'Logo URL must start with http://, https://, or / (a path on this site).';
-    } else {
+    } elseif (!$errors) {
         $config['app']['logo_url'] = $logoUrlInput;
     }
     foreach (['theme_primary_color' => 'Primary color', 'theme_accent_color' => 'Accent color', 'theme_background_color' => 'Background color', 'theme_text_color' => 'Text color'] as $colorField => $label) {
@@ -213,7 +252,7 @@ foreach ($votesByMode as $modeKey => $count) {
 <?php endif; ?>
 <div class="alert <?php echo h($statusClass); ?>"><?php echo h($statusMessage); ?></div>
 <div class="card-dark p-4">
-    <form method="post">
+    <form method="post" enctype="multipart/form-data">
         <?php echo csrf_field(); ?>
         <div class="mb-4">
             <label class="form-label d-block">Branding</label>
@@ -236,9 +275,19 @@ foreach ($votesByMode as $modeKey => $count) {
                     <input class="form-control" type="text" name="female_title" value="<?php echo h($config['app']['female_title'] ?? ''); ?>" placeholder="e.g. Mrs UMU Rubaga">
                 </div>
                 <div class="col-md-6">
-                    <label class="form-label">Logo URL</label>
+                    <label class="form-label">Logo — upload an image</label>
+                    <input class="form-control" type="file" name="logo_upload" accept="image/jpeg,image/png,image/webp">
+                    <small class="text-muted">JPG, PNG, or WEBP. Automatically resized and compressed. Uploading replaces the URL below.</small>
+                    <?php if (!empty($config['app']['logo_url'])): ?>
+                        <div class="mt-2">
+                            <img src="<?php echo h(asset_url($config['app']['logo_url'], $config)); ?>" alt="Current logo" style="height: 48px; border-radius: 6px;">
+                        </div>
+                    <?php endif; ?>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">...or Logo URL</label>
                     <input class="form-control" type="text" name="logo_url" value="<?php echo h($config['app']['logo_url'] ?? ''); ?>" placeholder="https://... or /assets/images/your-logo.png">
-                    <small class="text-muted">Used for the navbar badge, browser tab icon, and certificates. Upload your image anywhere reachable and paste the URL here.</small>
+                    <small class="text-muted">Used for the navbar badge, browser tab icon, and certificates. Only used if you don't upload a file above.</small>
                 </div>
                 <div class="col-12">
                     <hr class="my-2" style="border-color: rgba(255,255,255,.15);">

@@ -200,7 +200,7 @@ if ($showResults) {
                                     <div class="d-flex gap-3 align-items-center">
                                         <img class="contestant-img" style="width: 140px; height: 140px;" src="<?php echo h(asset_url($winner['photo'], $config)); ?>" alt="<?php echo h($winner['contestant_name']); ?>">
                                         <div>
-                                            <h5 class="mb-1"><i class="bi bi-trophy-fill text-warning"></i> <?php echo h($winner['contestant_name']); ?></h5>
+                                            <h5 class="mb-1"><i class="bi bi-trophy-fill text-warning"></i> <?php echo h(leaderboard_winner_label($winner)); ?></h5>
                                             <div class="text-muted"><?php echo h(format_leaderboard_metric($winner, $votingMode)); ?></div>
                                         </div>
                                     </div>
@@ -279,8 +279,8 @@ if ($showResults) {
                 <h4 class="mb-2">Final statement</h4>
                 <p class="text-muted mb-3">
                     <?php
-                    $femaleWinner = $overallWinners['female']['contestant_name'] ?? 'TBD';
-                    $maleWinner = $overallWinners['male']['contestant_name'] ?? 'TBD';
+                    $femaleWinner = leaderboard_winner_label($overallWinners['female']) ?: 'TBD';
+                    $maleWinner = leaderboard_winner_label($overallWinners['male']) ?: 'TBD';
                     ?>
                     Congratulations to <?php echo h(site_female_title($config)); ?>: <?php echo h($femaleWinner); ?>, and <?php echo h(site_male_title($config)); ?>: <?php echo h($maleWinner); ?>.
                 </p>
