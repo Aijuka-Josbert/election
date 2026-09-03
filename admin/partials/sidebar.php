@@ -32,6 +32,9 @@ if (!isset($activePage)) {
     <a class="<?php echo $activePage === 'integrity' ? 'active' : ''; ?>" href="<?php echo h($baseUrl . '/admin/integrity.php'); ?>">
         <i class="bi bi-shield-check me-2"></i>Data Integrity
     </a>
+    <a class="<?php echo $activePage === 'tie_break' ? 'active' : ''; ?>" href="<?php echo h($baseUrl . '/admin/tie_break.php'); ?>">
+        <i class="bi bi-shuffle me-2"></i>Tie Breaks
+    </a>
     <a class="<?php echo $activePage === 'users' ? 'active' : ''; ?>" href="<?php echo h($baseUrl . '/admin/users.php'); ?>">
         <i class="bi bi-person-x me-2"></i>Users
     </a>

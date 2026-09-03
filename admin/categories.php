@@ -19,86 +19,90 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!csrf_verify()) {
         $errors[] = 'Your session expired. Please reload the page and try again.';
     } else {
-    $action = $_POST['action'] ?? 'add';
-    if ($action === 'delete') {
-        $categoryId = (int) ($_POST['category_id'] ?? 0);
-        if ($categoryId > 0) {
-            if (has_votes_for($pdo, 'category_id', $categoryId)) {
-                // Refuse to hard-delete: categories.votes has ON DELETE
-                // CASCADE, so this would silently destroy every historical
-                // ballot cast in this category. Archive instead — it
-                // disappears from new ballots but historical results still
-                // show it correctly.
-                $archive = $pdo->prepare('UPDATE categories SET active = 0 WHERE id = ?');
-                $archive->execute([$categoryId]);
-                log_admin_action($pdo, 'category_archived', "id={$categoryId} reason=has_votes");
-                $success = 'This category already has votes recorded, so it was archived (hidden from new ballots) instead of deleted, to protect existing results.';
-            } else {
-                $delete = $pdo->prepare('DELETE FROM categories WHERE id = ?');
-                $delete->execute([$categoryId]);
-                log_admin_action($pdo, 'category_deleted', "id={$categoryId}");
-                $success = 'Category deleted.';
+        $action = $_POST['action'] ?? 'add';
+        if ($action === 'delete') {
+            $categoryId = (int) ($_POST['category_id'] ?? 0);
+            if ($categoryId > 0) {
+                if (has_votes_for($pdo, 'category_id', $categoryId)) {
+                    // Refuse to hard-delete: categories.votes has ON DELETE
+                    // CASCADE, so this would silently destroy every historical
+                    // ballot cast in this category. Archive instead — it
+                    // disappears from new ballots but historical results still
+                    // show it correctly.
+                    $archive = $pdo->prepare('UPDATE categories SET active = 0 WHERE id = ?');
+                    $archive->execute([$categoryId]);
+                    log_admin_action($pdo, 'category_archived', "id={$categoryId} reason=has_votes");
+                    $success = 'This category already has votes recorded, so it was archived (hidden from new ballots) instead of deleted, to protect existing results.';
+                } else {
+                    $delete = $pdo->prepare('DELETE FROM categories WHERE id = ?');
+                    $delete->execute([$categoryId]);
+                    log_admin_action($pdo, 'category_deleted', "id={$categoryId}");
+                    $success = 'Category deleted.';
+                }
+            }
+        } elseif ($action === 'toggle_active') {
+            $categoryId = (int) ($_POST['category_id'] ?? 0);
+            $newActive = (int) ($_POST['new_active'] ?? 0);
+            if ($categoryId > 0) {
+                $toggle = $pdo->prepare('UPDATE categories SET active = ? WHERE id = ?');
+                $toggle->execute([$newActive ? 1 : 0, $categoryId]);
+                log_admin_action($pdo, $newActive ? 'category_reactivated' : 'category_archived', "id={$categoryId}");
+                $success = $newActive ? 'Category reactivated.' : 'Category archived.';
+            }
+        } elseif ($action === 'bulk_set_all') {
+            // Quick fix for the common mistake of creating every category as
+            // male-only or female-only when "All" (both genders competing
+            // side by side) was actually intended — one click instead of
+            // editing each category individually.
+            $updated = $pdo->exec("UPDATE categories SET gender = 'all' WHERE gender != 'all'");
+            log_admin_action($pdo, 'categories_bulk_set_all', "rows_affected={$updated}");
+            $success = $updated > 0
+                ? "Done — {$updated} categor" . ($updated === 1 ? 'y' : 'ies') . " switched to \"All\" (both genders)."
+                : 'Every category was already set to "All".';
+        } elseif ($action === 'update') {
+            $categoryId = (int) ($_POST['category_id'] ?? 0);
+            $name = trim($_POST['name'] ?? '');
+            $gender = $_POST['gender'] ?? '';
+
+            if ($categoryId <= 0) {
+                $errors[] = 'Invalid category selected.';
+            }
+            if ($name === '') {
+                $errors[] = 'Category name is required.';
+            } elseif (mb_strlen($name) > 255) {
+                $errors[] = 'Category name must be 255 characters or fewer.';
+            }
+            if (!in_array($gender, ['male', 'female', 'all'], true)) {
+                $errors[] = 'Select a valid gender.';
+            }
+
+            if (!$errors) {
+                $update = $pdo->prepare('UPDATE categories SET name = ?, gender = ? WHERE id = ?');
+                $update->execute([$name, $gender, $categoryId]);
+                log_admin_action($pdo, 'category_updated', "id={$categoryId} name={$name} gender={$gender}");
+                $success = 'Category updated.';
+            }
+        } else {
+            $name = trim($_POST['name'] ?? '');
+            $gender = $_POST['gender'] ?? '';
+
+            if ($name === '') {
+                $errors[] = 'Category name is required.';
+            } elseif (mb_strlen($name) > 255) {
+                $errors[] = 'Category name must be 255 characters or fewer.';
+            }
+
+            if (!in_array($gender, ['male', 'female', 'all'], true)) {
+                $errors[] = 'Select a valid gender.';
+            }
+
+            if (!$errors) {
+                $insert = $pdo->prepare('INSERT INTO categories (name, gender, active) VALUES (?, ?, 1)');
+                $insert->execute([$name, $gender]);
+                log_admin_action($pdo, 'category_added', "name={$name} gender={$gender}");
+                $success = 'Category added.';
             }
         }
-    } elseif ($action === 'toggle_active') {
-        $categoryId = (int) ($_POST['category_id'] ?? 0);
-        $newActive = (int) ($_POST['new_active'] ?? 0);
-        if ($categoryId > 0) {
-            $toggle = $pdo->prepare('UPDATE categories SET active = ? WHERE id = ?');
-            $toggle->execute([$newActive ? 1 : 0, $categoryId]);
-            log_admin_action($pdo, $newActive ? 'category_reactivated' : 'category_archived', "id={$categoryId}");
-            $success = $newActive ? 'Category reactivated.' : 'Category archived.';
-        }
-    } elseif ($action === 'bulk_set_all') {
-        // Quick fix for the common mistake of creating every category as
-        // male-only or female-only when "All" (both genders competing
-        // side by side) was actually intended — one click instead of
-        // editing each category individually.
-        $updated = $pdo->exec("UPDATE categories SET gender = 'all' WHERE gender != 'all'");
-        log_admin_action($pdo, 'categories_bulk_set_all', "rows_affected={$updated}");
-        $success = $updated > 0
-            ? "Done — {$updated} categor" . ($updated === 1 ? 'y' : 'ies') . " switched to \"All\" (both genders)."
-            : 'Every category was already set to "All".';
-    } elseif ($action === 'update') {
-        $categoryId = (int) ($_POST['category_id'] ?? 0);
-        $name = trim($_POST['name'] ?? '');
-        $gender = $_POST['gender'] ?? '';
-
-        if ($categoryId <= 0) {
-            $errors[] = 'Invalid category selected.';
-        }
-        if ($name === '') {
-            $errors[] = 'Category name is required.';
-        }
-        if (!in_array($gender, ['male', 'female', 'all'], true)) {
-            $errors[] = 'Select a valid gender.';
-        }
-
-        if (!$errors) {
-            $update = $pdo->prepare('UPDATE categories SET name = ?, gender = ? WHERE id = ?');
-            $update->execute([$name, $gender, $categoryId]);
-            log_admin_action($pdo, 'category_updated', "id={$categoryId} name={$name} gender={$gender}");
-            $success = 'Category updated.';
-        }
-    } else {
-        $name = trim($_POST['name'] ?? '');
-        $gender = $_POST['gender'] ?? '';
-
-        if ($name === '') {
-            $errors[] = 'Category name is required.';
-        }
-
-        if (!in_array($gender, ['male', 'female', 'all'], true)) {
-            $errors[] = 'Select a valid gender.';
-        }
-
-        if (!$errors) {
-            $insert = $pdo->prepare('INSERT INTO categories (name, gender, active) VALUES (?, ?, 1)');
-            $insert->execute([$name, $gender]);
-            log_admin_action($pdo, 'category_added', "name={$name} gender={$gender}");
-            $success = 'Category added.';
-        }
-    }
     }
 }
 
@@ -144,7 +148,7 @@ require_once __DIR__ . '/partials/header.php';
                 <?php endif; ?>
                 <div class="mb-3">
                     <label class="form-label">Category name</label>
-                    <input class="form-control" type="text" name="name" value="<?php echo h($editCategory['name'] ?? ''); ?>" required>
+                    <input class="form-control" type="text" name="name" value="<?php echo h($editCategory['name'] ?? ''); ?>" maxlength="255" required>
                 </div>
                 <div class="mb-3">
                     <label class="form-label">Gender</label>
@@ -168,7 +172,7 @@ require_once __DIR__ . '/partials/header.php';
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                 <h4 class="mb-0">Current Categories</h4>
                 <?php if ($categories): ?>
-                    <form method="post" onsubmit="return confirm('Switch every category that isn\'t already \"All\" to \"All\" (both genders)? This can be undone per-category via Edit.');">
+                    <form method="post" onsubmit="return confirm('Switch every category that isn\'t already \" All\" to \"All\" (both genders)? This can be undone per-category via Edit.');">
                         <?php echo csrf_field(); ?>
                         <input type="hidden" name="action" value="bulk_set_all">
                         <button class="btn btn-outline-warning btn-sm" type="submit">Set all categories to "All" (both genders)</button>
@@ -225,8 +229,8 @@ require_once __DIR__ . '/partials/header.php';
                                             <button class="btn btn-outline-light btn-sm" type="submit">Delete</button>
                                         </form>
                                     </td>
-                                </tr>
-                            <?php endforeach; ?>
+                                    </tr>
+                                <?php endforeach; ?>
                         </tbody>
                     </table>
                 </div>

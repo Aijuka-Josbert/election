@@ -255,6 +255,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$hasVoted && $votingOpen) {
             }
         }
     }
+
+    if ($success) {
+        // Lock the ballot workflow the moment the first vote of the
+        // election exists — see the comment on the matching check in
+        // admin/settings.php. REPLACE INTO is idempotent, so calling
+        // this on every subsequent vote too is harmless.
+        save_app_settings($pdo, ['voting_mode_locked' => '1']);
+    }
 }
 
 // If user has voted, load their submitted scores for display
@@ -326,7 +334,8 @@ if ($showWinners) {
     $overallWinners = $board['overall_winners'];
 }
 ?>
-<?php // format_leaderboard_metric($row, $votingMode) renders "Avg 4.20/5" or "12 votes" depending on the active mode. ?>
+<?php // format_leaderboard_metric($row, $votingMode) renders "Avg 4.20/5" or "12 votes" depending on the active mode. 
+?>
 <section class="py-5">
     <div class="container">
         <?php
@@ -368,13 +377,13 @@ if ($showWinners) {
                         <span id="categoryCounter">0</span> of <span id="totalCategories"><?php echo (int) count($categories); ?></span> categories completed
                     </p>
                 </div>
-                
+
                 <div class="category-progress-bar" id="categoryProgressContainer">
                     <?php foreach ($categories as $index => $category): ?>
-                        <div class="progress-step" 
-                             data-step="<?php echo (int) $index; ?>" 
-                             data-category-id="<?php echo (int) $category['id']; ?>"
-                             data-category-name="<?php echo h($category['name']); ?>">
+                        <div class="progress-step"
+                            data-step="<?php echo (int) $index; ?>"
+                            data-category-id="<?php echo (int) $category['id']; ?>"
+                            data-category-name="<?php echo h($category['name']); ?>">
                             <div class="step-circle">
                                 <span class="step-number"><?php echo (int) $index + 1; ?></span>
                                 <svg class="step-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
@@ -388,7 +397,7 @@ if ($showWinners) {
                     <?php endforeach; ?>
                 </div>
             </div>
-            
+
             <!-- Overall Progress Indicator -->
             <div class="card-dark p-4 mb-4">
                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
@@ -402,99 +411,98 @@ if ($showWinners) {
                     <small id="voteProgressText" class="text-muted">0% completed</small>
                 </div>
             </div>
-                    <?php
-                    $stepTotal = count($categorySteps);
-                    ?>
-                    <form method="post" id="voteForm" class="vote-form" data-total="<?php echo (int) $totalRatings; ?>" data-steps="<?php echo (int) $stepTotal; ?>" data-male-title="<?php echo h(site_male_title($config)); ?>" data-female-title="<?php echo h(site_female_title($config)); ?>" data-categories="<?php echo htmlspecialchars(json_encode(array_map(fn($c) => ['id' => $c['id'], 'name' => $c['name']], $categories)), ENT_QUOTES, 'UTF-8'); ?>">
-                        <?php echo csrf_field(); ?>
-                        <?php foreach ($categorySteps as $index => $category): ?>
-                            <div class="vote-step mb-5" data-step="<?php echo (int) $index; ?>" data-category-id="<?php echo (int) $category['id']; ?>" data-gender="<?php echo h($category['gender']); ?>" data-category="<?php echo h($category['name']); ?>" style="<?php echo $index === 0 ? '' : 'display:none;'; ?>">
-                                <div class="vote-group mb-4">
-                                    <div class="d-flex justify-content-between align-items-center mb-4">
-                                        <div>
-                                            <h3 class="mb-2"><?php echo h($category['name']); ?></h3>
-                                            <small class="text-muted text-uppercase">
-                                                <?php 
-                                                $categoryGender = normalize_category_gender($category['gender'] ?? null);
-                                                if ($categoryGender === 'all') {
-                                                    echo 'Rate both male &amp; female';
-                                                } elseif ($categoryGender === 'male') {
-                                                    echo 'Rate ' . h(site_male_title($config));
-                                                } else {
-                                                    echo 'Rate ' . h(site_female_title($config));
-                                                }
-                                                ?>
-                                            </small>
-                                        </div>
-                                        <span class="badge badge-gold">Rate 1 - 5</span>
-                                    </div>
+            <?php
+            $stepTotal = count($categorySteps);
+            ?>
+            <form method="post" id="voteForm" class="vote-form" data-total="<?php echo (int) $totalRatings; ?>" data-steps="<?php echo (int) $stepTotal; ?>" data-male-title="<?php echo h(site_male_title($config)); ?>" data-female-title="<?php echo h(site_female_title($config)); ?>" data-categories="<?php echo htmlspecialchars(json_encode(array_map(fn($c) => ['id' => $c['id'], 'name' => $c['name']], $categories)), ENT_QUOTES, 'UTF-8'); ?>">
+                <?php echo csrf_field(); ?>
+                <?php foreach ($categorySteps as $index => $category): ?>
+                    <div class="vote-step mb-5" data-step="<?php echo (int) $index; ?>" data-category-id="<?php echo (int) $category['id']; ?>" data-gender="<?php echo h($category['gender']); ?>" data-category="<?php echo h($category['name']); ?>" style="<?php echo $index === 0 ? '' : 'display:none;'; ?>">
+                        <div class="vote-group mb-4">
+                            <div class="d-flex justify-content-between align-items-center mb-4">
+                                <div>
+                                    <h3 class="mb-2"><?php echo h($category['name']); ?></h3>
+                                    <small class="text-muted text-uppercase">
+                                        <?php
+                                        $categoryGender = normalize_category_gender($category['gender'] ?? null);
+                                        if ($categoryGender === 'all') {
+                                            echo 'Rate both male &amp; female';
+                                        } elseif ($categoryGender === 'male') {
+                                            echo 'Rate ' . h(site_male_title($config));
+                                        } else {
+                                            echo 'Rate ' . h(site_female_title($config));
+                                        }
+                                        ?>
+                                    </small>
+                                </div>
+                                <span class="badge badge-gold">Rate 1 - 5</span>
+                            </div>
 
-                                    <div class="row g-4">
-                                        <?php foreach ($contestantSections as $section): ?>
-                                            <?php 
-                                            $categoryGender = normalize_category_gender($category['gender'] ?? null);
-                                            $shouldShow = ($categoryGender === 'all' || $categoryGender === $section['key']);
-                                            if (!$shouldShow) continue;
-                                            ?>
-                                            <div class="col-12 col-md-6">
-                                                <div class="gender-section-header mb-3">
-                                                    <h5 class="mb-0"><?php echo h($section['label']); ?></h5>
-                                                    <small class="text-muted text-uppercase"><?php echo h(ucfirst($section['key'])); ?></small>
-                                                </div>
-                                                <div class="contestants-list">
-                                                    <div class="row g-3">
-                                                        <?php foreach ($contestantsByGender[$section['key']] as $contestant): ?>
-                                                            <div class="col-12">
-                                                                <div class="card-dark contestant-card <?php echo $section['key'] === 'male' ? 'contestant-card-male' : 'contestant-card-female'; ?> p-3 h-100">
-                                                                    <div class="d-flex gap-3">
-                                                                        <img class="contestant-img" src="<?php echo h(asset_url($contestant['photo'], $config)); ?>" alt="<?php echo h($contestant['name']); ?>">
-                                                                        <div>
-                                                                            <h5 class="mb-1"><?php echo h($contestant['name']); ?></h5>
-                                                                            <?php if (!empty($contestant['bio'])): ?>
-                                                                                <small class="text-muted"><?php echo h($contestant['bio']); ?></small>
-                                                                            <?php endif; ?>
-                                                                        </div>
-                                                                    </div>
-                                                                    <div class="star-rating mt-3" role="radiogroup" aria-label="Rate <?php echo h($contestant['name']); ?>">
-                                                                        <?php for ($star = 5; $star >= 1; $star--): ?>
-                                                                            <?php $inputId = 'star_' . $category['id'] . '_' . $contestant['id'] . '_' . $star; ?>
-                                                                            <input
-                                                                                type="radio"
-                                                                                class="star-input"
-                                                                                id="<?php echo h($inputId); ?>"
-                                                                                name="scores[<?php echo (int) $category['id']; ?>][<?php echo (int) $contestant['id']; ?>]"
-                                                                                value="<?php echo $star; ?>"
-                                                                                <?php echo $star === 5 ? 'required' : ''; ?>
-                                                                            >
-                                                                            <label for="<?php echo h($inputId); ?>" title="<?php echo $star; ?> stars">&#9733;</label>
-                                                                        <?php endfor; ?>
-                                                                    </div>
+                            <div class="row g-4">
+                                <?php foreach ($contestantSections as $section): ?>
+                                    <?php
+                                    $categoryGender = normalize_category_gender($category['gender'] ?? null);
+                                    $shouldShow = ($categoryGender === 'all' || $categoryGender === $section['key']);
+                                    if (!$shouldShow) continue;
+                                    ?>
+                                    <div class="col-12 col-md-6">
+                                        <div class="gender-section-header mb-3">
+                                            <h5 class="mb-0"><?php echo h($section['label']); ?></h5>
+                                            <small class="text-muted text-uppercase"><?php echo h(ucfirst($section['key'])); ?></small>
+                                        </div>
+                                        <div class="contestants-list">
+                                            <div class="row g-3">
+                                                <?php foreach ($contestantsByGender[$section['key']] as $contestant): ?>
+                                                    <div class="col-12">
+                                                        <div class="card-dark contestant-card <?php echo $section['key'] === 'male' ? 'contestant-card-male' : 'contestant-card-female'; ?> p-3 h-100">
+                                                            <div class="d-flex gap-3">
+                                                                <img class="contestant-img" src="<?php echo h(asset_url($contestant['photo'], $config)); ?>" alt="<?php echo h($contestant['name']); ?>">
+                                                                <div>
+                                                                    <h5 class="mb-1"><?php echo h($contestant['name']); ?></h5>
+                                                                    <?php if (!empty($contestant['bio'])): ?>
+                                                                        <small class="text-muted"><?php echo h($contestant['bio']); ?></small>
+                                                                    <?php endif; ?>
                                                                 </div>
                                                             </div>
-                                                        <?php endforeach; ?>
+                                                            <div class="star-rating mt-3" role="radiogroup" aria-label="Rate <?php echo h($contestant['name']); ?>">
+                                                                <?php for ($star = 5; $star >= 1; $star--): ?>
+                                                                    <?php $inputId = 'star_' . $category['id'] . '_' . $contestant['id'] . '_' . $star; ?>
+                                                                    <input
+                                                                        type="radio"
+                                                                        class="star-input"
+                                                                        id="<?php echo h($inputId); ?>"
+                                                                        name="scores[<?php echo (int) $category['id']; ?>][<?php echo (int) $contestant['id']; ?>]"
+                                                                        value="<?php echo $star; ?>"
+                                                                        <?php echo $star === 5 ? 'required' : ''; ?>>
+                                                                    <label for="<?php echo h($inputId); ?>" title="<?php echo $star; ?> stars">&#9733;</label>
+                                                                <?php endfor; ?>
+                                                            </div>
+                                                        </div>
                                                     </div>
-                                                </div>
+                                                <?php endforeach; ?>
                                             </div>
-                                        <?php endforeach; ?>
+                                        </div>
                                     </div>
-                                </div>
-                            </div>
-                        <?php endforeach; ?>
-                        <div class="vote-sticky-bar card-dark p-3" id="voteStepper">
-                            <div class="vote-stepper-inner d-flex justify-content-between align-items-center flex-wrap gap-3">
-                                <div>
-                                    <h4 class="mb-1" id="currentCategoryTitle">Category 1</h4>
-                                    <small class="text-muted" id="currentCategoryMeta"></small>
-                                </div>
-                                <div class="vote-stepper-actions d-flex gap-2 flex-wrap">
-                                    <button class="btn btn-outline-light" type="button" id="prevCategoryBtn">Previous</button>
-                                    <button class="btn btn-outline-light" type="button" id="nextCategoryBtn">Next category</button>
-                                    <button class="btn btn-primary" type="submit" id="submitVoteBtn">Submit Vote</button>
-                                </div>
+                                <?php endforeach; ?>
                             </div>
                         </div>
-                    </form>
-                    <div class="step-toast" id="stepToast" role="status" aria-live="polite"></div>
+                    </div>
+                <?php endforeach; ?>
+                <div class="vote-sticky-bar card-dark p-3" id="voteStepper">
+                    <div class="vote-stepper-inner d-flex justify-content-between align-items-center flex-wrap gap-3">
+                        <div>
+                            <h4 class="mb-1" id="currentCategoryTitle">Category 1</h4>
+                            <small class="text-muted" id="currentCategoryMeta"></small>
+                        </div>
+                        <div class="vote-stepper-actions d-flex gap-2 flex-wrap">
+                            <button class="btn btn-outline-light" type="button" id="prevCategoryBtn">Previous</button>
+                            <button class="btn btn-outline-light" type="button" id="nextCategoryBtn">Next category</button>
+                            <button class="btn btn-primary" type="submit" id="submitVoteBtn">Submit Vote</button>
+                        </div>
+                    </div>
+                </div>
+            </form>
+            <div class="step-toast" id="stepToast" role="status" aria-live="polite"></div>
         <?php elseif (!$hasVoted && $votingOpen && $votingMode === 'simple'): ?>
             <!-- Simple one-click ballot: same one-category-at-a-time stepper
                  as rating mode (progress tracker + Prev/Next + final
@@ -514,9 +522,9 @@ if ($showWinners) {
                 <div class="category-progress-bar" id="categoryProgressContainer">
                     <?php foreach ($categories as $index => $category): ?>
                         <div class="progress-step"
-                             data-step="<?php echo (int) $index; ?>"
-                             data-category-id="<?php echo (int) $category['id']; ?>"
-                             data-category-name="<?php echo h($category['name']); ?>">
+                            data-step="<?php echo (int) $index; ?>"
+                            data-category-id="<?php echo (int) $category['id']; ?>"
+                            data-category-name="<?php echo h($category['name']); ?>">
                             <div class="step-circle">
                                 <span class="step-number"><?php echo (int) $index + 1; ?></span>
                                 <svg class="step-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
@@ -581,8 +589,7 @@ if ($showWinners) {
                                                             name="choices[<?php echo (int) $category['id']; ?>][<?php echo h($section['key']); ?>]"
                                                             value="<?php echo (int) $contestant['id']; ?>"
                                                             required
-                                                            style="width: 20px; height: 20px; flex-shrink: 0;"
-                                                        >
+                                                            style="width: 20px; height: 20px; flex-shrink: 0;">
                                                         <img class="contestant-img" src="<?php echo h(asset_url($contestant['photo'], $config)); ?>" alt="<?php echo h($contestant['name']); ?>">
                                                         <div>
                                                             <h5 class="mb-1"><?php echo h($contestant['name']); ?></h5>
@@ -631,20 +638,20 @@ if ($showWinners) {
                 </div>
 
                 <?php if ($isAdmin): ?>
-                <div class="row g-3 mb-4">
-                    <div class="col-md-6">
-                        <div class="card-dark p-3 h-100">
-                            <div class="text-uppercase text-muted small mb-1">Total vote entries</div>
-                            <div class="h4 mb-0"><?php echo number_format($adminTotals['total_votes']); ?></div>
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-6">
+                            <div class="card-dark p-3 h-100">
+                                <div class="text-uppercase text-muted small mb-1">Total vote entries</div>
+                                <div class="h4 mb-0"><?php echo number_format($adminTotals['total_votes']); ?></div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card-dark p-3 h-100">
+                                <div class="text-uppercase text-muted small mb-1">Total voters</div>
+                                <div class="h4 mb-0"><?php echo number_format($adminTotals['total_voters']); ?></div>
+                            </div>
                         </div>
                     </div>
-                    <div class="col-md-6">
-                        <div class="card-dark p-3 h-100">
-                            <div class="text-uppercase text-muted small mb-1">Total voters</div>
-                            <div class="h4 mb-0"><?php echo number_format($adminTotals['total_voters']); ?></div>
-                        </div>
-                    </div>
-                </div>
                 <?php endif; ?>
 
                 <!-- Overall Winners: females first, then males -->
@@ -785,7 +792,7 @@ if ($showWinners) {
                                         $contestantGender = $contestant['gender'] ?? 'male';
                                         $shouldDisplay = ($categoryGender === 'all' || $categoryGender === $contestantGender);
                                         if (!$shouldDisplay) continue;
-                                        
+
                                         $cell = $submittedScores[$category['id']][$contestant['id']] ?? null;
                                         $scoreValue = is_array($cell) ? $cell['score'] : (int) $cell;
                                         ?>

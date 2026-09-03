@@ -41,156 +41,178 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'anony
     } elseif (!rate_limit_allow($pdo, rate_limit_client_bucket('admin_settings'), 30, 60)) {
         $errors[] = 'Too many attempts. Please wait a moment and try again.';
     } else {
-    // Snapshot before mutation, for the audit log below.
-    $previousVotingMode = $config['app']['voting_mode'] ?? 'rating';
-    $previousVotingOpen = !empty($config['app']['voting_open']);
-    $previousResultsPublic = !empty($config['app']['results_public']);
+        // Snapshot before mutation, for the audit log below.
+        $previousVotingMode = $config['app']['voting_mode'] ?? 'rating';
+        $previousVotingOpen = !empty($config['app']['voting_open']);
+        $previousResultsPublic = !empty($config['app']['results_public']);
 
-    $eventDate = trim($_POST['event_date'] ?? '');
-    $eventTime = trim($_POST['event_time'] ?? '');
-    $tzName = $config['app']['timezone'] ?? 'UTC';
-    $tz = new DateTimeZone($tzName);
-    $config['app']['voting_open'] = !empty($_POST['voting_open']);
-    $config['app']['results_public'] = !empty($_POST['results_public']);
-    $config['app']['voting_mode'] = ($_POST['voting_mode'] ?? 'rating') === 'simple' ? 'simple' : 'rating';
+        $eventDate = trim($_POST['event_date'] ?? '');
+        $eventTime = trim($_POST['event_time'] ?? '');
+        $tzName = $config['app']['timezone'] ?? 'UTC';
+        $tz = new DateTimeZone($tzName);
+        $config['app']['voting_open'] = !empty($_POST['voting_open']);
+        $config['app']['results_public'] = !empty($_POST['results_public']);
+        $config['app']['allow_any_email'] = !empty($_POST['allow_any_email']);
 
-    // Branding — every field here is optional; leaving one blank falls
-    // back to the app's built-in default (see site_name()/site_male_title()
-    // etc. in includes/helpers.php), it never breaks the page.
-    $config['app']['event_name'] = trim($_POST['event_name'] ?? '');
-    $config['app']['event_tagline'] = trim($_POST['event_tagline'] ?? '');
-    $config['app']['male_title'] = trim($_POST['male_title'] ?? '');
-    $config['app']['female_title'] = trim($_POST['female_title'] ?? '');
+        // Locked once any vote exists (see vote.php, which sets this flag
+        // right after the first successful ballot insert) — switching the
+        // ballot workflow mid-election is what the per-vote mode stamping
+        // elsewhere in this app protects against being *interpreted*
+        // incorrectly, but changing it after votes exist is still confusing
+        // for voters and invites exactly that kind of mixed-mode election, so
+        // it's blocked outright rather than merely handled gracefully.
+        $votingModeLocked = !empty($config['app']['voting_mode_locked']);
+        if (!$votingModeLocked) {
+            $config['app']['voting_mode'] = ($_POST['voting_mode'] ?? 'rating') === 'simple' ? 'simple' : 'rating';
+        }
+        // else: ignore whatever was submitted for voting_mode — keep the
+        // existing value, already in $config['app']['voting_mode'].
 
-    // Logo: an uploaded file (if provided) takes priority over the URL
-    // field. Uploading compresses/resizes the same way contestant photos
-    // do, then stores the resulting local path in app_settings.logo_url
-    // — the same field the URL text input writes to, so
-    // site_logo_url()/site_logo_data_uri() don't need to know which
-    // source it came from.
-    $logoUrlInput = trim($_POST['logo_url'] ?? '');
-    if (!empty($_FILES['logo_upload']['name']) && ($_FILES['logo_upload']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
-        $logoFile = $_FILES['logo_upload'];
-        if ($logoFile['error'] !== UPLOAD_ERR_OK) {
-            $errors[] = 'Logo upload failed. Please try again.';
-        } else {
-            $logoMime = @mime_content_type($logoFile['tmp_name']);
-            $logoExtMap = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
-            if (!isset($logoExtMap[$logoMime])) {
-                $errors[] = 'Logo must be a JPG, PNG, or WEBP image.';
+        // Branding — every field here is optional; leaving one blank falls
+        // back to the app's built-in default (see site_name()/site_male_title()
+        // etc. in includes/helpers.php), it never breaks the page.
+        $config['app']['event_name'] = mb_substr(trim($_POST['event_name'] ?? ''), 0, 150);
+        $config['app']['event_tagline'] = mb_substr(trim($_POST['event_tagline'] ?? ''), 0, 150);
+        $config['app']['male_title'] = mb_substr(trim($_POST['male_title'] ?? ''), 0, 100);
+        $config['app']['female_title'] = mb_substr(trim($_POST['female_title'] ?? ''), 0, 100);
+
+        // Logo: an uploaded file (if provided) takes priority over the URL
+        // field. Uploading compresses/resizes the same way contestant photos
+        // do, then stores the resulting local path in app_settings.logo_url
+        // — the same field the URL text input writes to, so
+        // site_logo_url()/site_logo_data_uri() don't need to know which
+        // source it came from.
+        $logoUrlInput = trim($_POST['logo_url'] ?? '');
+        if (!empty($_FILES['logo_upload']['name']) && ($_FILES['logo_upload']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+            $logoFile = $_FILES['logo_upload'];
+            if ($logoFile['error'] !== UPLOAD_ERR_OK) {
+                $errors[] = 'Logo upload failed. Please try again.';
             } else {
-                $logoDir = __DIR__ . '/../uploads/branding';
-                if (!is_dir($logoDir) && !mkdir($logoDir, 0775, true)) {
-                    $errors[] = "Branding uploads folder could not be created at: {$logoDir} — same fix as the contestants uploads folder: sudo chown -R www-data:www-data " . dirname($logoDir) . " && sudo chmod -R 775 " . dirname($logoDir) . ".";
+                $logoMime = @mime_content_type($logoFile['tmp_name']);
+                $logoExtMap = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
+                if (!isset($logoExtMap[$logoMime])) {
+                    $errors[] = 'Logo must be a JPG, PNG, or WEBP image.';
+                } elseif (!verify_real_image($logoFile['tmp_name'])) {
+                    $errors[] = 'That file could not be verified as a real image. Please choose a different logo.';
                 } else {
-                    @chmod($logoDir, 0775);
-                    if (!is_writable($logoDir)) {
-                        $errors[] = "Branding uploads folder exists but is not writable at: {$logoDir} — fix with: sudo chown -R www-data:www-data {$logoDir} && sudo chmod -R 775 {$logoDir}.";
+                    $logoDir = __DIR__ . '/../uploads/branding';
+                    if (!is_dir($logoDir) && !mkdir($logoDir, 0775, true)) {
+                        $errors[] = "Branding uploads folder could not be created at: {$logoDir} — same fix as the contestants uploads folder: sudo chown -R www-data:www-data " . dirname($logoDir) . " && sudo chmod -R 775 " . dirname($logoDir) . ".";
                     } else {
-                        $logoFileName = 'logo_' . uniqid('', true) . '.' . $logoExtMap[$logoMime];
-                        $logoDestination = $logoDir . '/' . $logoFileName;
-                        if (!move_uploaded_file($logoFile['tmp_name'], $logoDestination)) {
-                            $errors[] = 'Unable to save the uploaded logo.';
+                        @chmod($logoDir, 0775);
+                        if (!is_writable($logoDir)) {
+                            $errors[] = "Branding uploads folder exists but is not writable at: {$logoDir} — fix with: sudo chown -R www-data:www-data {$logoDir} && sudo chmod -R 775 {$logoDir}.";
                         } else {
-                            compress_uploaded_image($logoDestination, 800, 85); // logos are small/simple — 800px is plenty
-                            $logoUrlInput = 'uploads/branding/' . $logoFileName;
+                            $logoFileName = 'logo_' . uniqid('', true) . '.' . $logoExtMap[$logoMime];
+                            $logoDestination = $logoDir . '/' . $logoFileName;
+                            if (!move_uploaded_file($logoFile['tmp_name'], $logoDestination)) {
+                                $errors[] = 'Unable to save the uploaded logo.';
+                            } else {
+                                compress_uploaded_image($logoDestination, 800, 85); // logos are small/simple — 800px is plenty
+                                $logoUrlInput = 'uploads/branding/' . $logoFileName;
+                            }
                         }
                     }
                 }
             }
         }
-    }
 
-    if ($logoUrlInput !== '' && !preg_match('#^https?://#i', $logoUrlInput) && !str_starts_with($logoUrlInput, '/') && !str_starts_with($logoUrlInput, 'uploads/')) {
-        $errors[] = 'Logo URL must start with http://, https://, or / (a path on this site).';
-    } elseif (!$errors) {
-        $config['app']['logo_url'] = $logoUrlInput;
-    }
-    foreach (['theme_primary_color' => 'Primary color', 'theme_accent_color' => 'Accent color', 'theme_background_color' => 'Background color', 'theme_text_color' => 'Text color'] as $colorField => $label) {
-        $colorInput = trim($_POST[$colorField] ?? '');
-        if ($colorInput !== '' && !preg_match('/^#[0-9a-fA-F]{6}$/', $colorInput)) {
-            $errors[] = "{$label} must be a hex color like #c8102e.";
+        if ($logoUrlInput !== '' && !preg_match('#^https?://#i', $logoUrlInput) && !str_starts_with($logoUrlInput, '/') && !str_starts_with($logoUrlInput, 'uploads/')) {
+            $errors[] = 'Logo URL must start with http://, https://, or / (a path on this site).';
+        } elseif (!$errors) {
+            $config['app']['logo_url'] = $logoUrlInput;
+        }
+
+        $submittedFont = $_POST['theme_font'] ?? '';
+        $config['app']['theme_font'] = in_array($submittedFont, site_font_options(), true) ? $submittedFont : 'Manrope';
+
+        foreach (['theme_primary_color' => 'Primary color', 'theme_accent_color' => 'Accent color', 'theme_background_color' => 'Background color', 'theme_text_color' => 'Text color'] as $colorField => $label) {
+            $colorInput = trim($_POST[$colorField] ?? '');
+            if ($colorInput !== '' && !preg_match('/^#[0-9a-fA-F]{6}$/', $colorInput)) {
+                $errors[] = "{$label} must be a hex color like #c8102e.";
+            } else {
+                $config['app'][$colorField] = $colorInput;
+            }
+        }
+
+        $startDate = trim($_POST['voting_start_date'] ?? '');
+        $startTime = trim($_POST['voting_start_time'] ?? '');
+        $endDate = trim($_POST['voting_end_date'] ?? '');
+        $endTime = trim($_POST['voting_end_time'] ?? '');
+
+        $resolvedStartTime = $startTime !== '' ? $startTime : '00:00';
+        $resolvedEndTime = $endTime !== '' ? $endTime : '00:00';
+        $resolvedEventTime = $eventTime !== '' ? $eventTime : '00:00';
+
+        $config['app']['voting_start'] = $startDate
+            ? $startDate . ' ' . $resolvedStartTime . ':00'
+            : '';
+        $config['app']['voting_end'] = $endDate
+            ? $endDate . ' ' . $resolvedEndTime . ':00'
+            : '';
+        $config['app']['event_date'] = $eventDate
+            ? $eventDate . ' ' . $resolvedEventTime . ':00'
+            : '';
+
+        if ($config['app']['voting_start'] !== '' && $config['app']['voting_end'] !== '') {
+            $startCheck = new DateTime($config['app']['voting_start'], $tz);
+            $endCheck = new DateTime($config['app']['voting_end'], $tz);
+            if ($endCheck <= $startCheck) {
+                $endCheck->modify('+1 day');
+                $config['app']['voting_end'] = $endCheck->format('Y-m-d H:i:s');
+                $warnings[] = 'Voting end time was before start time. End date was moved to the next day.';
+            }
+        }
+
+        $saveOk = false;
+        if (!$errors) {
+            $saveOk = save_app_settings($pdo, [
+                'event_date' => $config['app']['event_date'] ?? '',
+                'voting_open' => !empty($config['app']['voting_open']) ? '1' : '0',
+                'voting_start' => $config['app']['voting_start'] ?? '',
+                'voting_end' => $config['app']['voting_end'] ?? '',
+                'voting_mode' => $config['app']['voting_mode'] ?? 'rating',
+                'results_public' => !empty($config['app']['results_public']) ? '1' : '0',
+                'allow_any_email' => !empty($config['app']['allow_any_email']) ? '1' : '0',
+                'event_name' => $config['app']['event_name'] ?? '',
+                'event_tagline' => $config['app']['event_tagline'] ?? '',
+                'male_title' => $config['app']['male_title'] ?? '',
+                'female_title' => $config['app']['female_title'] ?? '',
+                'logo_url' => $config['app']['logo_url'] ?? '',
+                'theme_primary_color' => $config['app']['theme_primary_color'] ?? '',
+                'theme_accent_color' => $config['app']['theme_accent_color'] ?? '',
+                'theme_background_color' => $config['app']['theme_background_color'] ?? '',
+                'theme_text_color' => $config['app']['theme_text_color'] ?? '',
+                'theme_font' => $config['app']['theme_font'] ?? 'Manrope',
+            ]);
+        }
+
+        if (!$saveOk) {
+            $errors[] = 'Unable to save settings to the database.';
         } else {
-            $config['app'][$colorField] = $colorInput;
+            $success = 'Settings updated.';
+
+            // Audit trail for the sensitive toggles — who changed what, when.
+            // Historical votes are never touched by this; get_leaderboard()
+            // filters by each vote's own stamped mode (see includes/helpers.php),
+            // so switching here only changes what NEW ballots look like.
+            $newVotingMode = $config['app']['voting_mode'] ?? 'rating';
+            if ($newVotingMode !== $previousVotingMode) {
+                log_admin_action(
+                    $pdo,
+                    'voting_mode_changed',
+                    "previous_mode={$previousVotingMode} new_mode={$newVotingMode}"
+                );
+            }
+            $newVotingOpen = !empty($config['app']['voting_open']);
+            if ($newVotingOpen !== $previousVotingOpen) {
+                log_admin_action($pdo, 'voting_open_changed', $newVotingOpen ? 'opened' : 'closed');
+            }
+            $newResultsPublic = !empty($config['app']['results_public']);
+            if ($newResultsPublic !== $previousResultsPublic) {
+                log_admin_action($pdo, 'results_public_changed', $newResultsPublic ? 'made public' : 'made private');
+            }
         }
-    }
-
-    $startDate = trim($_POST['voting_start_date'] ?? '');
-    $startTime = trim($_POST['voting_start_time'] ?? '');
-    $endDate = trim($_POST['voting_end_date'] ?? '');
-    $endTime = trim($_POST['voting_end_time'] ?? '');
-
-    $resolvedStartTime = $startTime !== '' ? $startTime : '00:00';
-    $resolvedEndTime = $endTime !== '' ? $endTime : '00:00';
-    $resolvedEventTime = $eventTime !== '' ? $eventTime : '00:00';
-
-    $config['app']['voting_start'] = $startDate
-        ? $startDate . ' ' . $resolvedStartTime . ':00'
-        : '';
-    $config['app']['voting_end'] = $endDate
-        ? $endDate . ' ' . $resolvedEndTime . ':00'
-        : '';
-    $config['app']['event_date'] = $eventDate
-        ? $eventDate . ' ' . $resolvedEventTime . ':00'
-        : '';
-
-    if ($config['app']['voting_start'] !== '' && $config['app']['voting_end'] !== '') {
-        $startCheck = new DateTime($config['app']['voting_start'], $tz);
-        $endCheck = new DateTime($config['app']['voting_end'], $tz);
-        if ($endCheck <= $startCheck) {
-            $endCheck->modify('+1 day');
-            $config['app']['voting_end'] = $endCheck->format('Y-m-d H:i:s');
-            $warnings[] = 'Voting end time was before start time. End date was moved to the next day.';
-        }
-    }
-
-    $saveOk = false;
-    if (!$errors) {
-        $saveOk = save_app_settings($pdo, [
-            'event_date' => $config['app']['event_date'] ?? '',
-            'voting_open' => !empty($config['app']['voting_open']) ? '1' : '0',
-            'voting_start' => $config['app']['voting_start'] ?? '',
-            'voting_end' => $config['app']['voting_end'] ?? '',
-            'voting_mode' => $config['app']['voting_mode'] ?? 'rating',
-            'results_public' => !empty($config['app']['results_public']) ? '1' : '0',
-            'event_name' => $config['app']['event_name'] ?? '',
-            'event_tagline' => $config['app']['event_tagline'] ?? '',
-            'male_title' => $config['app']['male_title'] ?? '',
-            'female_title' => $config['app']['female_title'] ?? '',
-            'logo_url' => $config['app']['logo_url'] ?? '',
-            'theme_primary_color' => $config['app']['theme_primary_color'] ?? '',
-            'theme_accent_color' => $config['app']['theme_accent_color'] ?? '',
-            'theme_background_color' => $config['app']['theme_background_color'] ?? '',
-            'theme_text_color' => $config['app']['theme_text_color'] ?? '',
-        ]);
-    }
-
-    if (!$saveOk) {
-        $errors[] = 'Unable to save settings to the database.';
-    } else {
-        $success = 'Settings updated.';
-
-        // Audit trail for the sensitive toggles — who changed what, when.
-        // Historical votes are never touched by this; get_leaderboard()
-        // filters by each vote's own stamped mode (see includes/helpers.php),
-        // so switching here only changes what NEW ballots look like.
-        $newVotingMode = $config['app']['voting_mode'] ?? 'rating';
-        if ($newVotingMode !== $previousVotingMode) {
-            log_admin_action(
-                $pdo,
-                'voting_mode_changed',
-                "previous_mode={$previousVotingMode} new_mode={$newVotingMode}"
-            );
-        }
-        $newVotingOpen = !empty($config['app']['voting_open']);
-        if ($newVotingOpen !== $previousVotingOpen) {
-            log_admin_action($pdo, 'voting_open_changed', $newVotingOpen ? 'opened' : 'closed');
-        }
-        $newResultsPublic = !empty($config['app']['results_public']);
-        if ($newResultsPublic !== $previousResultsPublic) {
-            log_admin_action($pdo, 'results_public_changed', $newResultsPublic ? 'made public' : 'made private');
-        }
-    }
     }
 }
 
@@ -221,6 +243,7 @@ $statusResult = voting_status_message($config);
 $statusMessage = $statusResult['message'];
 $statusClass = $statusResult['open'] ? 'alert-success' : 'alert-warning';
 $votingModeValue = get_voting_mode($config);
+$votingModeLocked = !empty($config['app']['voting_mode_locked']);
 $votesByMode = $settingsWritable ? vote_counts_by_mode($pdo) : [];
 $otherModeVotes = 0;
 foreach ($votesByMode as $modeKey => $count) {
@@ -260,24 +283,24 @@ foreach ($votesByMode as $modeKey => $count) {
             <div class="row g-3">
                 <div class="col-md-6">
                     <label class="form-label">Event / site name</label>
-                    <input class="form-control" type="text" name="event_name" value="<?php echo h($config['app']['event_name'] ?? ''); ?>" placeholder="e.g. UMU Rubaga Varsity Ball">
+                    <input class="form-control" type="text" name="event_name" value="<?php echo h($config['app']['event_name'] ?? ''); ?>" placeholder="e.g. UMU Rubaga Varsity Ball" maxlength="150">
                 </div>
                 <div class="col-md-6">
                     <label class="form-label">Tagline (shown on the homepage badge)</label>
-                    <input class="form-control" type="text" name="event_tagline" value="<?php echo h($config['app']['event_tagline'] ?? ''); ?>" placeholder="e.g. Varsity Ball Voting">
+                    <input class="form-control" type="text" name="event_tagline" value="<?php echo h($config['app']['event_tagline'] ?? ''); ?>" placeholder="e.g. Varsity Ball Voting" maxlength="150">
                 </div>
                 <div class="col-md-6">
                     <label class="form-label">Male contestant title</label>
-                    <input class="form-control" type="text" name="male_title" value="<?php echo h($config['app']['male_title'] ?? ''); ?>" placeholder="e.g. Mr UMU Rubaga">
+                    <input class="form-control" type="text" name="male_title" value="<?php echo h($config['app']['male_title'] ?? ''); ?>" placeholder="e.g. Mr UMU Rubaga" maxlength="100">
                 </div>
                 <div class="col-md-6">
                     <label class="form-label">Female contestant title</label>
-                    <input class="form-control" type="text" name="female_title" value="<?php echo h($config['app']['female_title'] ?? ''); ?>" placeholder="e.g. Mrs UMU Rubaga">
+                    <input class="form-control" type="text" name="female_title" value="<?php echo h($config['app']['female_title'] ?? ''); ?>" placeholder="e.g. Mrs UMU Rubaga" maxlength="100">
                 </div>
                 <div class="col-md-6">
                     <label class="form-label">Logo — upload an image</label>
                     <input class="form-control" type="file" name="logo_upload" accept="image/jpeg,image/png,image/webp">
-                    <small class="text-muted">JPG, PNG, or WEBP</small>
+                    <small class="text-muted">JPG, PNG, or WEBP. Automatically resized and compressed. Uploading replaces the URL below.</small>
                     <?php if (!empty($config['app']['logo_url'])): ?>
                         <div class="mt-2">
                             <img src="<?php echo h(asset_url($config['app']['logo_url'], $config)); ?>" alt="Current logo" style="height: 48px; border-radius: 6px;">
@@ -313,18 +336,39 @@ foreach ($votesByMode as $modeKey => $count) {
                     <input class="form-control form-control-color" type="color" name="theme_text_color" value="<?php echo h(site_text_color($config)); ?>">
                     <small class="text-muted">Body text color — make sure it stays readable against your background color above.</small>
                 </div>
+                <div class="col-md-6">
+                    <label class="form-label">Font</label>
+                    <select class="form-select" name="theme_font">
+                        <?php foreach (site_font_options() as $fontOption): ?>
+                            <option value="<?php echo h($fontOption); ?>" <?php echo site_font($config) === $fontOption ? 'selected' : ''; ?>><?php echo h($fontOption); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <small class="text-muted">Applies to body text and headings everywhere, including the admin panel.</small>
+                </div>
             </div>
         </div>
         <div class="mb-4">
-            <label class="form-label d-block">Voting workflow</label>
+            <label class="form-label d-block">
+                Voting workflow
+                <?php if ($votingModeLocked): ?>
+                    <span class="badge bg-secondary ms-1"> Locked</span>
+                <?php endif; ?>
+            </label>
+            <?php if ($votingModeLocked): ?>
+                <div class="alert alert-secondary py-2 px-3 mb-2">
+                    Locked because at least one vote has already been cast — switching the ballot workflow mid-election
+                    would be confusing for voters and mix two kinds of ballots in one election. This can't be changed
+                    from here.
+                </div>
+            <?php endif; ?>
             <div class="form-check">
-                <input class="form-check-input" type="radio" name="voting_mode" id="voting_mode_rating" value="rating" <?php echo $votingModeValue === 'rating' ? 'checked' : ''; ?>>
+                <input class="form-check-input" type="radio" name="voting_mode" id="voting_mode_rating" value="rating" <?php echo $votingModeValue === 'rating' ? 'checked' : ''; ?> <?php echo $votingModeLocked ? 'disabled' : ''; ?>>
                 <label class="form-check-label" for="voting_mode_rating">
                     <strong>Rating ballot (current)</strong> — voters rate every contestant 1–5 in every category, one submit at the end.
                 </label>
             </div>
             <div class="form-check">
-                <input class="form-check-input" type="radio" name="voting_mode" id="voting_mode_simple" value="simple" <?php echo $votingModeValue === 'simple' ? 'checked' : ''; ?>>
+                <input class="form-check-input" type="radio" name="voting_mode" id="voting_mode_simple" value="simple" <?php echo $votingModeValue === 'simple' ? 'checked' : ''; ?> <?php echo $votingModeLocked ? 'disabled' : ''; ?>>
                 <label class="form-check-label" for="voting_mode_simple">
                     <strong>Simple ballot (one-click)</strong> — voters pick one contestant per category and tap "Vote Now" once. No ratings.
                 </label>
@@ -372,6 +416,11 @@ foreach ($votesByMode as $modeKey => $count) {
         <div class="form-check form-switch mt-4">
             <input class="form-check-input" type="checkbox" id="results_public" name="results_public" <?php echo !empty($config['app']['results_public']) ? 'checked' : ''; ?>>
             <label class="form-check-label" for="results_public">Make results visible to everyone</label>
+        </div>
+        <div class="form-check form-switch mt-2">
+            <input class="form-check-input" type="checkbox" id="allow_any_email" name="allow_any_email" <?php echo !empty($config['app']['allow_any_email']) ? 'checked' : ''; ?>>
+            <label class="form-check-label" for="allow_any_email">Allow any email address (skip the <?php echo h($config['app']['allowed_domain'] ?? 'university'); ?> domain check)</label>
+            <small class="text-muted d-block">Off by default — this app's whole premise is verified-student-only voting. Only turn this on if you specifically want non-<?php echo h($config['app']['allowed_domain'] ?? ''); ?> Google accounts to be able to vote.</small>
         </div>
         <button class="btn btn-primary mt-4" type="submit" <?php echo !$settingsWritable ? 'disabled' : ''; ?>>Save Settings</button>
     </form>

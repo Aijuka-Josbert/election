@@ -135,12 +135,49 @@ function site_female_title(array $config): string
  * isolated override rather than editing style.css itself, so the
  * stylesheet stays cacheable and the override is easy to reason about.
  */
+/**
+ * Curated list rather than a free-text field: keeps the admin Settings
+ * font picker simple, guarantees every option is a real Google Font
+ * (so the generated <link> URL always resolves), and avoids the
+ * validation complexity/attack surface of accepting an arbitrary
+ * font-family string that gets embedded directly into a <style> tag and
+ * a Google Fonts URL.
+ */
+function site_font_options(): array
+{
+    return ['Manrope', 'Roboto', 'Poppins', 'Inter', 'Lato', 'Montserrat', 'Open Sans', 'Playfair Display', 'Nunito', 'Raleway'];
+}
+
+function site_font(array $config): string
+{
+    $font = trim((string) ($config['app']['theme_font'] ?? ''));
+    return in_array($font, site_font_options(), true) ? $font : 'Manrope';
+}
+
+/**
+ * <link> tag to load the chosen font from Google Fonts. Empty for the
+ * default (Manrope) — already loaded by the existing <link> tags in
+ * includes/header.php and admin/partials/header.php, so loading it a
+ * second time here would be wasted bandwidth for the common case where
+ * nobody has changed this setting.
+ */
+function site_font_link_tag(array $config): string
+{
+    $font = site_font($config);
+    if ($font === 'Manrope') {
+        return '';
+    }
+    $encoded = rawurlencode($font);
+    return '<link href="https://fonts.googleapis.com/css2?family=' . $encoded . ':wght@300;400;600;700&display=swap" rel="stylesheet">';
+}
+
 function site_theme_style_tag(array $config): string
 {
     $primary = site_primary_color($config);
     $accent = site_accent_color($config);
     $background = site_background_color($config);
     $text = site_text_color($config);
+    $font = site_font($config);
     // .hero's own background is a radial-gradient using hardcoded rgba()
     // literals (not var(--umu-red)/var(--umu-gold)), so overriding the
     // CSS variables alone doesn't touch it — it's what actually produces
@@ -148,8 +185,13 @@ function site_theme_style_tag(array $config): string
     // (flat background color, gradient removed) so the admin's chosen
     // background color is what actually shows there, and neutralize the
     // ::after pseudo-element's separate gold overlay for the same reason.
+    // Font applies to body text AND headings (h1-h6) — this app's default
+    // CSS deliberately uses a separate serif display font for headings,
+    // but an admin picking a font wants it applied everywhere, not just
+    // body copy.
     return '<style>:root{--umu-red:' . h($primary) . ';--umu-gold:' . h($accent) . ';}'
-        . 'body{background:' . h($background) . ';color:' . h($text) . ' !important;}'
+        . 'body{background:' . h($background) . ';color:' . h($text) . ';font-family:\'' . h($font) . '\',sans-serif !important;}'
+        . 'h1,h2,h3,h4,h5,h6{font-family:\'' . h($font) . '\',sans-serif !important;}'
         . '.hero{background:' . h($background) . ' !important;}'
         . '.hero::after{background:transparent !important;}</style>';
 }
@@ -222,12 +264,12 @@ function asset_url_versioned(string $path, array $config): string
 function absolute_base_url(array $config): string
 {
     $basePath = base_url($config);
-    
+
     // If base_url is explicitly set in config, use it
     if (!empty($config['app']['base_url'])) {
         return rtrim($config['app']['base_url'], '/');
     }
-    
+
     $host = $_SERVER['HTTP_HOST'] ?? '';
     if ($host === '') {
         return $basePath;
@@ -276,9 +318,9 @@ function ensure_settings_table(PDO $pdo): void
 {
     $pdo->exec(
         "CREATE TABLE IF NOT EXISTS app_settings (\n"
-        . "setting_key VARCHAR(64) PRIMARY KEY,\n"
-        . "setting_value TEXT NOT NULL\n"
-        . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+            . "setting_key VARCHAR(64) PRIMARY KEY,\n"
+            . "setting_value TEXT NOT NULL\n"
+            . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
     );
 }
 
@@ -384,6 +426,37 @@ function normalize_category_gender(?string $value): string
  * outcome than "you can't add contestants because an image extension is
  * missing."
  */
+/**
+ * Confirms a file is a genuinely decodable image, not just something with
+ * an image-like MIME type reported by finfo. finfo reads magic bytes,
+ * which is reasonably reliable but not foolproof (a crafted file can
+ * carry valid image magic bytes while embedding executable content
+ * afterward — a classic "polyglot" file upload attack). getimagesize()
+ * actually attempts to parse the image structure/dimensions, which a
+ * polyglot is far less likely to survive intact. Use this as a second,
+ * independent check alongside (not instead of) the MIME check already in
+ * place at each call site.
+ */
+function verify_real_image(string $filePath): bool
+{
+    $info = @getimagesize($filePath);
+    if ($info === false) {
+        return false;
+    }
+    // Deliberately excludes IMAGETYPE_GIF even though this app never
+    // accepts GIF uploads elsewhere (config['uploads']['allowed_types']
+    // only lists jpeg/png/webp) — found while testing this function:
+    // PHP's getimagesize() only lightly parses a GIF's header fields and
+    // does not validate the rest of the file, so a classic "GIF89a
+    // polyglot" (valid GIF signature followed by arbitrary/executable
+    // content) can pass this check even though it isn't a real image.
+    // JPEG/PNG/WEBP don't share this weakness — getimagesize() actually
+    // parses enough of their structure that arbitrary trailing content
+    // reliably fails it.
+    $allowedTypes = [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP];
+    return in_array($info[2] ?? null, $allowedTypes, true);
+}
+
 function compress_uploaded_image(string $filePath, int $maxDimension = 1600, int $jpegQuality = 82): bool
 {
     if (!function_exists('imagecreatefromstring')) {
@@ -492,17 +565,74 @@ function ensure_audit_log_table(PDO $pdo): void
 {
     $pdo->exec(
         "CREATE TABLE IF NOT EXISTS admin_audit_log (\n"
-        . "id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,\n"
-        . "admin_user_id INT UNSIGNED NULL,\n"
-        . "admin_email VARCHAR(191) NULL,\n"
-        . "action VARCHAR(64) NOT NULL,\n"
-        . "details TEXT NULL,\n"
-        . "ip_address VARCHAR(45) NULL,\n"
-        . "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,\n"
-        . "INDEX idx_audit_action (action),\n"
-        . "INDEX idx_audit_created (created_at)\n"
-        . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+            . "id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,\n"
+            . "admin_user_id INT UNSIGNED NULL,\n"
+            . "admin_email VARCHAR(191) NULL,\n"
+            . "action VARCHAR(64) NOT NULL,\n"
+            . "details TEXT NULL,\n"
+            . "ip_address VARCHAR(45) NULL,\n"
+            . "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,\n"
+            . "INDEX idx_audit_action (action),\n"
+            . "INDEX idx_audit_created (created_at)\n"
+            . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
     );
+}
+
+/**
+ * Client IP resolution, trusted-proxy aware. REMOTE_ADDR alone is wrong
+ * behind any reverse proxy/load balancer (Cloudflare, nginx in front of
+ * PHP-FPM, etc.) — it would show the proxy's IP for every visitor, which
+ * breaks both audit logging (every action looks like it came from the
+ * same "user") and the NAT-aware rate limiting comment elsewhere in this
+ * file (every visitor behind the proxy would share one rate-limit
+ * bucket). X-Forwarded-For is attacker-controlled in general, so it's
+ * only trusted when the request actually came from an admin-configured
+ * trusted proxy IP — otherwise this silently falls back to REMOTE_ADDR,
+ * which is always safe (it's the actual TCP peer, never spoofable).
+ */
+/**
+ * Validates a stored return_url (session-timeout / post-login redirect)
+ * is a same-site relative path before it's ever used in a redirect —
+ * without this, a return_url containing an absolute URL (however it got
+ * there) could be used to send a freshly-authenticated session to an
+ * external site (open redirect). Returns null if unsafe.
+ */
+function safe_local_redirect_target(?string $url): ?string
+{
+    if ($url === null || $url === '') {
+        return null;
+    }
+    if (str_starts_with($url, '//')) {
+        return null; // protocol-relative URL, e.g. //evil.com
+    }
+    if (preg_match('#^[a-zA-Z][a-zA-Z0-9+.\-]*://#', $url)) {
+        return null; // absolute URL with a scheme, e.g. https://evil.com
+    }
+    if (!str_starts_with($url, '/')) {
+        return null; // must be an absolute path on this site
+    }
+    return $url;
+}
+
+function client_ip(array $config): string
+{
+    $remoteAddr = $_SERVER['REMOTE_ADDR'] ?? '';
+    $trustedProxies = $config['app']['trusted_proxies'] ?? [];
+
+    if (!is_array($trustedProxies) || !in_array($remoteAddr, $trustedProxies, true)) {
+        return $remoteAddr;
+    }
+
+    $forwardedFor = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '';
+    if ($forwardedFor === '') {
+        return $remoteAddr;
+    }
+
+    // X-Forwarded-For can be a comma-separated chain (client, proxy1,
+    // proxy2, ...) — the left-most entry is the original client.
+    $parts = array_map('trim', explode(',', $forwardedFor));
+    $candidate = $parts[0] ?? '';
+    return filter_var($candidate, FILTER_VALIDATE_IP) ? $candidate : $remoteAddr;
 }
 
 function log_admin_action(PDO $pdo, string $action, string $details = ''): void
@@ -518,7 +648,7 @@ function log_admin_action(PDO $pdo, string $action, string $details = ''): void
             $_SESSION['user_email'] ?? null,
             $action,
             $details,
-            $_SERVER['REMOTE_ADDR'] ?? null,
+            $GLOBALS['config'] ?? null ? client_ip($GLOBALS['config']) : ($_SERVER['REMOTE_ADDR'] ?? null),
         ]);
     } catch (PDOException $e) {
         // Audit logging must never block the admin action it's logging.
@@ -712,6 +842,85 @@ function get_voting_mode(array $config): string
  * there is one ranking implementation instead of three copies that can
  * disagree with each other.
  */
+/**
+ * Manual tie-break: an admin's recorded decision for who wins when two or
+ * more contestants are exactly tied. Ties are transient — they only exist
+ * while vote counts happen to be equal — so this table is a decision log,
+ * not a permanent override: get_tie_break_winner() only returns a
+ * recorded decision when the CURRENT tie still includes that same
+ * contestant among the tied group. If votes later change so the "tie"
+ * this was recorded for no longer exists (or is a different tie), the
+ * old decision naturally stops applying rather than forcing an outdated
+ * choice onto new results.
+ */
+function ensure_tie_break_table(PDO $pdo): void
+{
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS tie_break_log (\n"
+            . "id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,\n"
+            . "category_id INT NULL,\n"
+            . "gender VARCHAR(16) NOT NULL,\n"
+            . "winner_contestant_id INT NOT NULL,\n"
+            . "admin_user_id INT UNSIGNED NULL,\n"
+            . "admin_email VARCHAR(191) NULL,\n"
+            . "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,\n"
+            . "INDEX idx_tie_break_lookup (category_id, gender)\n"
+            . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+    );
+}
+
+/**
+ * Records an admin's choice of winner for a tie. $categoryId is null for
+ * an overall (not per-category) tie-break. Logged to admin_audit_log too,
+ * same as every other sensitive admin action in this app.
+ */
+function record_tie_break(PDO $pdo, ?int $categoryId, string $gender, int $winnerContestantId): void
+{
+    ensure_tie_break_table($pdo);
+    $stmt = $pdo->prepare(
+        'INSERT INTO tie_break_log (category_id, gender, winner_contestant_id, admin_user_id, admin_email)
+         VALUES (?, ?, ?, ?, ?)'
+    );
+    $stmt->execute([
+        $categoryId,
+        $gender,
+        $winnerContestantId,
+        $_SESSION['user_id'] ?? null,
+        $_SESSION['user_email'] ?? null,
+    ]);
+    $categoryLabel = $categoryId === null ? 'overall' : "category={$categoryId}";
+    log_admin_action($pdo, 'tie_broken', "{$categoryLabel} gender={$gender} winner_contestant_id={$winnerContestantId}");
+}
+
+/**
+ * Returns the contestant_id an admin previously chose for this tie, but
+ * only if that contestant is still among the currently-tied group
+ * ($tiedContestantIds) — see the doc comment on ensure_tie_break_table().
+ * Returns null if no applicable decision exists.
+ */
+function get_tie_break_winner(PDO $pdo, ?int $categoryId, ?string $gender, array $tiedContestantIds): ?int
+{
+    try {
+        ensure_tie_break_table($pdo);
+        $sql = 'SELECT winner_contestant_id FROM tie_break_log WHERE category_id ' . ($categoryId === null ? 'IS NULL' : '= ?');
+        $params = $categoryId === null ? [] : [$categoryId];
+        if ($gender !== null) {
+            $sql .= ' AND gender = ?';
+            $params[] = $gender;
+        }
+        $sql .= ' ORDER BY created_at DESC LIMIT 1';
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $winnerId = $stmt->fetchColumn();
+        if ($winnerId === false) {
+            return null;
+        }
+        return in_array((int) $winnerId, array_map('intval', $tiedContestantIds), true) ? (int) $winnerId : null;
+    } catch (PDOException $e) {
+        return null;
+    }
+}
+
 function get_leaderboard(PDO $pdo, string $mode): array
 {
     ensure_votes_mode_column($pdo);
@@ -744,23 +953,45 @@ function get_leaderboard(PDO $pdo, string $mode): array
     // above makes that pick deterministic (same input always produces the
     // same output) — but deterministic isn't the same as fair, so ties
     // are also tracked explicitly below (tied_with) instead of silently
-    // hidden behind a confident-looking single "winner".
+    // hidden behind a confident-looking single "winner", and an admin can
+    // record a manual decision (see record_tie_break()) that this
+    // function then applies whenever that same tie is still in effect.
     $categoryLeaders = [];
-    $categoryTieGroups = []; // key => [contestant_name, ...] all sharing the top metric
+    $categoryTieGroups = []; // key => [contestant_id => contestant_name, ...] all sharing the top metric
     foreach ($categoryRows as $row) {
         $contestantGender = $row['contestant_gender'] ?? 'male';
         $categoryGenderNormalized = normalize_category_gender($row['gender'] ?? null);
         $key = $categoryGenderNormalized === 'all' ? $row['category_id'] . '_' . $contestantGender : $row['category_id'];
         if (!isset($categoryLeaders[$key]) || $row['metric'] > $categoryLeaders[$key]['metric']) {
             $categoryLeaders[$key] = $row;
-            $categoryTieGroups[$key] = [$row['contestant_name']];
+            $categoryTieGroups[$key] = [$row['contestant_id'] => $row['contestant_name']];
         } elseif ((float) $row['metric'] === (float) $categoryLeaders[$key]['metric']) {
-            $categoryTieGroups[$key][] = $row['contestant_name'];
+            $categoryTieGroups[$key][$row['contestant_id']] = $row['contestant_name'];
         }
     }
     foreach ($categoryLeaders as $key => $row) {
-        $others = array_diff($categoryTieGroups[$key], [$row['contestant_name']]);
-        $categoryLeaders[$key]['tied_with'] = array_values($others);
+        $tieGroup = $categoryTieGroups[$key];
+        $categoryLeaders[$key]['tied_with'] = array_values(array_diff($tieGroup, [$row['contestant_name']]));
+        $categoryLeaders[$key]['tie_broken'] = false;
+        if (count($tieGroup) > 1) {
+            $categoryId = $row['category_id'];
+            $genderForLookup = normalize_category_gender($row['gender'] ?? null) === 'all' ? ($row['contestant_gender'] ?? 'male') : null;
+            $resolved = get_tie_break_winner($pdo, $categoryId, $genderForLookup, array_keys($tieGroup));
+            if ($resolved !== null && isset($tieGroup[$resolved])) {
+                // Swap in the admin-chosen contestant's own row data
+                // (photo, name) while keeping the same metric/tied_with
+                // for transparency about how close it was.
+                foreach ($categoryRows as $candidateRow) {
+                    if ((int) $candidateRow['contestant_id'] === (int) $resolved) {
+                        $categoryLeaders[$key] = array_merge($candidateRow, [
+                            'tied_with' => array_values(array_diff($tieGroup, [$candidateRow['contestant_name']])),
+                            'tie_broken' => true,
+                        ]);
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     $overallRows = $pdo->prepare(
@@ -780,7 +1011,7 @@ function get_leaderboard(PDO $pdo, string $mode): array
     // the results/winners screens.
     $overallWinners = ['female' => null, 'male' => null];
     $overallAll = ['female' => [], 'male' => []];
-    $overallTieGroups = ['female' => [], 'male' => []];
+    $overallTieGroups = ['female' => [], 'male' => []]; // gender => [contestant_id => name]
     foreach ($overallRows as $row) {
         $gender = $row['gender'] ?? '';
         if ($gender !== 'male' && $gender !== 'female') {
@@ -789,15 +1020,31 @@ function get_leaderboard(PDO $pdo, string $mode): array
         $overallAll[$gender][] = $row;
         if ($overallWinners[$gender] === null) {
             $overallWinners[$gender] = $row;
-            $overallTieGroups[$gender] = [$row['contestant_name']];
+            $overallTieGroups[$gender] = [$row['contestant_id'] => $row['contestant_name']];
         } elseif ((float) $row['metric'] === (float) $overallWinners[$gender]['metric']) {
-            $overallTieGroups[$gender][] = $row['contestant_name'];
+            $overallTieGroups[$gender][$row['contestant_id']] = $row['contestant_name'];
         }
     }
     foreach (['female', 'male'] as $gender) {
-        if ($overallWinners[$gender] !== null) {
-            $others = array_diff($overallTieGroups[$gender], [$overallWinners[$gender]['contestant_name']]);
-            $overallWinners[$gender]['tied_with'] = array_values($others);
+        if ($overallWinners[$gender] === null) {
+            continue;
+        }
+        $tieGroup = $overallTieGroups[$gender];
+        $overallWinners[$gender]['tied_with'] = array_values(array_diff($tieGroup, [$overallWinners[$gender]['contestant_name']]));
+        $overallWinners[$gender]['tie_broken'] = false;
+        if (count($tieGroup) > 1) {
+            $resolved = get_tie_break_winner($pdo, null, $gender, array_keys($tieGroup));
+            if ($resolved !== null && isset($tieGroup[$resolved])) {
+                foreach ($overallRows as $candidateRow) {
+                    if ((int) $candidateRow['contestant_id'] === (int) $resolved && ($candidateRow['gender'] ?? '') === $gender) {
+                        $overallWinners[$gender] = array_merge($candidateRow, [
+                            'tied_with' => array_values(array_diff($tieGroup, [$candidateRow['contestant_name']])),
+                            'tie_broken' => true,
+                        ]);
+                        break;
+                    }
+                }
+            }
         }
     }
 
@@ -907,11 +1154,11 @@ function ensure_rate_limits_table(PDO $pdo): void
 {
     $pdo->exec(
         "CREATE TABLE IF NOT EXISTS rate_limits (\n"
-        . "rl_key VARCHAR(191) PRIMARY KEY,\n"
-        . "hit_count INT UNSIGNED NOT NULL DEFAULT 0,\n"
-        . "expires_at DATETIME NOT NULL,\n"
-        . "INDEX idx_rate_limits_expires (expires_at)\n"
-        . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+            . "rl_key VARCHAR(191) PRIMARY KEY,\n"
+            . "hit_count INT UNSIGNED NOT NULL DEFAULT 0,\n"
+            . "expires_at DATETIME NOT NULL,\n"
+            . "INDEX idx_rate_limits_expires (expires_at)\n"
+            . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
     );
 }
 
@@ -923,15 +1170,20 @@ function rate_limit_allow(PDO $pdo, string $bucket, int $maxHits, int $windowSec
         $key = $bucket . ':' . $windowId;
         $expiresAt = date('Y-m-d H:i:s', ($windowId + 1) * $windowSeconds);
 
+        // Atomic increment-and-read in one round trip: LAST_INSERT_ID(expr)
+        // inside the UPDATE clause sets this connection's last-insert-id to
+        // the row's new hit_count, retrievable via lastInsertId() with no
+        // second query. The previous version did the increment atomically
+        // but then re-SELECTed the value in a separate statement — safe in
+        // practice (a concurrent increment landing in between only makes
+        // the limit trigger slightly earlier, never later), but this
+        // removes even that gap and the extra round trip.
         $stmt = $pdo->prepare(
             'INSERT INTO rate_limits (rl_key, hit_count, expires_at) VALUES (?, 1, ?)
-             ON DUPLICATE KEY UPDATE hit_count = hit_count + 1'
+             ON DUPLICATE KEY UPDATE hit_count = LAST_INSERT_ID(hit_count + 1)'
         );
         $stmt->execute([$key, $expiresAt]);
-
-        $check = $pdo->prepare('SELECT hit_count FROM rate_limits WHERE rl_key = ?');
-        $check->execute([$key]);
-        $hitCount = (int) $check->fetchColumn();
+        $hitCount = (int) $pdo->lastInsertId();
 
         // Opportunistic cleanup instead of a cron job — cheap, and only
         // needs to happen occasionally.
@@ -956,7 +1208,8 @@ function rate_limit_client_bucket(string $prefix): string
     if (!empty($_SESSION['user_id'])) {
         return $prefix . ':user:' . $_SESSION['user_id'];
     }
-    return $prefix . ':ip:' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+    $ip = isset($GLOBALS['config']) ? client_ip($GLOBALS['config']) : ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+    return $prefix . ':ip:' . $ip;
 }
 
 /**

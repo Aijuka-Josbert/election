@@ -15,4 +15,5 @@ if (isset($config) && function_exists('asset_url_versioned')) {
 ?>
 <script src="<?php echo h($mainJsUrl); ?>"></script>
 </body>
+
 </html>

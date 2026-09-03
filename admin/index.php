@@ -32,8 +32,28 @@ $board = get_leaderboard($pdo, $votingMode);
 $overallWinners = $board['overall_winners'];
 
 $genderRestrictedCount = (int) $pdo->query("SELECT COUNT(*) FROM categories WHERE gender IN ('male','female')")->fetchColumn();
+
+$unresolvedTieCount = 0;
+foreach ($board['category_leaders'] as $leader) {
+    if (!empty($leader['tied_with']) && empty($leader['tie_broken'])) {
+        $unresolvedTieCount++;
+    }
+}
+foreach (['female', 'male'] as $g) {
+    $w = $overallWinners[$g] ?? null;
+    if ($w && !empty($w['tied_with']) && empty($w['tie_broken'])) {
+        $unresolvedTieCount++;
+    }
+}
 ?>
 <h2 class="mb-4">Dashboard</h2>
+<?php if ($unresolvedTieCount > 0): ?>
+    <div class="alert alert-danger">
+        <strong>⚠ <?php echo $unresolvedTieCount; ?> tie<?php echo $unresolvedTieCount === 1 ? '' : 's'; ?> detected.</strong>
+        Results are currently showing a deterministic (not decided) pick.
+        <a class="alert-link" href="tie_break.php">Review and break the tie<?php echo $unresolvedTieCount === 1 ? '' : 's'; ?></a>.
+    </div>
+<?php endif; ?>
 <?php if ($genderRestrictedCount > 0): ?>
     <div class="alert alert-warning">
         <strong><?php echo $genderRestrictedCount; ?></strong> categor<?php echo $genderRestrictedCount === 1 ? 'y is' : 'ies are'; ?>
@@ -47,9 +67,9 @@ $genderRestrictedCount = (int) $pdo->query("SELECT COUNT(*) FROM categories WHER
             <div class="text-uppercase text-muted small mb-1">Voting status</div>
             <h4 class="mb-0">
                 <?php if ($votingStatus['open']): ?>
-                    <span class="badge bg-success">● Voting open</span>
+                    <span class="badge bg-success"><i class="fas fa-check-circle"></i> Voting open</span>
                 <?php else: ?>
-                    <span class="badge bg-secondary">● Voting closed</span>
+                    <span class="badge bg-secondary"><i class="fas fa-check-circle"></i> Voting closed</span>
                 <?php endif; ?>
             </h4>
             <small class="text-muted"><?php echo h($votingStatus['message']); ?></small>

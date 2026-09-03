@@ -25,7 +25,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const percent = total ? Math.round((filled / total) * 100) : 0;
         progressBar.style.width = `${percent}%`;
         progressText.textContent = `${percent}% completed`;
-        
+
         // Update category completion counter
         updateCategoryProgress();
     };

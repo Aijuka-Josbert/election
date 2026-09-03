@@ -118,7 +118,7 @@ if ($showResults) {
     foreach ($categoryAvgRows as $row) {
         $categoryGender = normalize_category_gender($row['gender'] ?? null);
         $contestantGender = $row['contestant_gender'] ?? 'male';
-        
+
         if ($categoryGender === 'all') {
             // For "all" categories, separate by gender
             $label = $row['category_name'] . ' (' . ucfirst($contestantGender) . ')';
@@ -126,7 +126,7 @@ if ($showResults) {
             // For gender-specific categories
             $label = ucfirst($categoryGender) . ' - ' . $row['category_name'];
         }
-        
+
         $categoryLabels[] = $label;
         $categoryAverages[] = round((float) $row['metric'], 2);
     }
@@ -248,8 +248,7 @@ if ($showResults) {
                             id="overallChartMale"
                             height="180"
                             data-labels='<?php echo json_encode($maleChartLabels); ?>'
-                            data-scores='<?php echo json_encode($maleChartScores); ?>'
-                        ></canvas>
+                            data-scores='<?php echo json_encode($maleChartScores); ?>'></canvas>
                     </div>
                 </div>
                 <div class="col-lg-6">
@@ -259,8 +258,7 @@ if ($showResults) {
                             id="overallChartFemale"
                             height="180"
                             data-labels='<?php echo json_encode($femaleChartLabels); ?>'
-                            data-scores='<?php echo json_encode($femaleChartScores); ?>'
-                        ></canvas>
+                            data-scores='<?php echo json_encode($femaleChartScores); ?>'></canvas>
                     </div>
                 </div>
             </div>
@@ -271,8 +269,7 @@ if ($showResults) {
                     id="categoryChart"
                     height="220"
                     data-labels='<?php echo json_encode($categoryLabels); ?>'
-                    data-scores='<?php echo json_encode($categoryAverages); ?>'
-                ></canvas>
+                    data-scores='<?php echo json_encode($categoryAverages); ?>'></canvas>
             </div>
 
             <div class="card-dark p-4">

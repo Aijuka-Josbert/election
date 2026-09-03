@@ -123,4 +123,3 @@ if (is_file($configLocalPath)) {
 }
 
 return $config;
-

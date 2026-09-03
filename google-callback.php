@@ -56,11 +56,17 @@ $client->setAccessToken($token['access_token']);
 $oauth = new Google_Service_Oauth2($client);
 $userInfo = $oauth->userinfo->get();
 
-// Enforce allowed email domain (e.g., stud.umu.ac.ug)
+// Enforce allowed email domain (e.g., stud.umu.ac.ug) — unless the admin
+// has explicitly turned that off in Settings (allow_any_email). Off by
+// default: this app's whole premise is "only verified students can vote",
+// so the domain check stays the safe default and has to be deliberately
+// disabled by an admin who understands the tradeoff, not silently
+// bypassed by a config omission.
 $email = strtolower($userInfo->email ?? '');
 $domain = substr(strrchr($email, '@') ?: '', 1);
+$allowAnyEmail = !empty($config['app']['allow_any_email']);
 
-if ($domain !== $config['app']['allowed_domain']) {
+if (!$allowAnyEmail && $domain !== $config['app']['allowed_domain']) {
     echo 'Only UMU student emails are allowed.';
     exit;
 }
@@ -96,12 +102,16 @@ if ($user) {
     $hasVoted = 0;
 }
 
-// Set up the authenticated session and redirect to voting
+// Set up the authenticated session and redirect to voting (or back to
+// wherever they were before an idle-timeout/login-required redirect sent
+// them here — see includes/admin_auth.php and safe_local_redirect_target()).
 session_regenerate_id(true);
 $_SESSION['user_id'] = $userId;
 $_SESSION['user_name'] = $name;
 $_SESSION['user_email'] = $email;
 $_SESSION['has_voted'] = $hasVoted;
 
-header('Location: vote.php');
+$returnUrl = safe_local_redirect_target($_SESSION['return_url'] ?? null);
+unset($_SESSION['return_url']);
+header('Location: ' . ($returnUrl ?? 'vote.php'));
 exit;

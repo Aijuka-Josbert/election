@@ -119,11 +119,21 @@ require_once __DIR__ . '/partials/header.php';
             <h5 class="mb-3">Categories by gender</h5>
             <table class="table table-dark table-sm mb-0">
                 <tbody>
-                    <tr><td>Male</td><td class="text-end"><?php echo $categoryGenderCounts['male']; ?></td></tr>
-                    <tr><td>Female</td><td class="text-end"><?php echo $categoryGenderCounts['female']; ?></td></tr>
-                    <tr><td>All (both genders)</td><td class="text-end"><?php echo $categoryGenderCounts['all']; ?></td></tr>
+                    <tr>
+                        <td>Male</td>
+                        <td class="text-end"><?php echo $categoryGenderCounts['male']; ?></td>
+                    </tr>
+                    <tr>
+                        <td>Female</td>
+                        <td class="text-end"><?php echo $categoryGenderCounts['female']; ?></td>
+                    </tr>
+                    <tr>
+                        <td>All (both genders)</td>
+                        <td class="text-end"><?php echo $categoryGenderCounts['all']; ?></td>
+                    </tr>
                     <tr class="<?php echo $categoryGenderCounts['other'] > 0 ? 'table-danger' : ''; ?>">
-                        <td>Unrecognized</td><td class="text-end"><?php echo $categoryGenderCounts['other']; ?></td>
+                        <td>Unrecognized</td>
+                        <td class="text-end"><?php echo $categoryGenderCounts['other']; ?></td>
                     </tr>
                 </tbody>
             </table>
@@ -134,10 +144,17 @@ require_once __DIR__ . '/partials/header.php';
             <h5 class="mb-3">Contestants by gender</h5>
             <table class="table table-dark table-sm mb-0">
                 <tbody>
-                    <tr><td>Male</td><td class="text-end"><?php echo $contestantGenderCounts['male']; ?></td></tr>
-                    <tr><td>Female</td><td class="text-end"><?php echo $contestantGenderCounts['female']; ?></td></tr>
+                    <tr>
+                        <td>Male</td>
+                        <td class="text-end"><?php echo $contestantGenderCounts['male']; ?></td>
+                    </tr>
+                    <tr>
+                        <td>Female</td>
+                        <td class="text-end"><?php echo $contestantGenderCounts['female']; ?></td>
+                    </tr>
                     <tr class="<?php echo $contestantGenderCounts['other'] > 0 ? 'table-danger' : ''; ?>">
-                        <td>Unrecognized</td><td class="text-end"><?php echo $contestantGenderCounts['other']; ?></td>
+                        <td>Unrecognized</td>
+                        <td class="text-end"><?php echo $contestantGenderCounts['other']; ?></td>
                     </tr>
                 </tbody>
             </table>
@@ -153,12 +170,24 @@ require_once __DIR__ . '/partials/header.php';
     <h5 class="mb-3">Ballot reconciliation</h5>
     <table class="table table-dark table-sm mb-0">
         <tbody>
-            <tr><td>Total vote rows</td><td class="text-end"><?php echo number_format($totalVoteRows); ?></td></tr>
+            <tr>
+                <td>Total vote rows</td>
+                <td class="text-end"><?php echo number_format($totalVoteRows); ?></td>
+            </tr>
             <?php foreach ($votesByMode as $modeKey => $count): ?>
-                <tr><td>&nbsp;&nbsp;— cast under "<?php echo h($modeKey); ?>" mode</td><td class="text-end"><?php echo number_format($count); ?></td></tr>
+                <tr>
+                    <td>&nbsp;&nbsp;— cast under "<?php echo h($modeKey); ?>" mode</td>
+                    <td class="text-end"><?php echo number_format($count); ?></td>
+                </tr>
             <?php endforeach; ?>
-            <tr><td>Distinct voters (non-anonymized rows)</td><td class="text-end"><?php echo number_format($totalVoters); ?></td></tr>
-            <tr><td>Anonymized vote rows (voter link removed)</td><td class="text-end"><?php echo number_format($anonymizedVoteRows); ?></td></tr>
+            <tr>
+                <td>Distinct voters (non-anonymized rows)</td>
+                <td class="text-end"><?php echo number_format($totalVoters); ?></td>
+            </tr>
+            <tr>
+                <td>Anonymized vote rows (voter link removed)</td>
+                <td class="text-end"><?php echo number_format($anonymizedVoteRows); ?></td>
+            </tr>
             <tr class="<?php echo $votersWithZeroVoteRows > 0 ? 'table-warning' : ''; ?>">
                 <td>Users marked has_voted=1 with zero vote rows</td>
                 <td class="text-end"><?php echo number_format($votersWithZeroVoteRows); ?></td>

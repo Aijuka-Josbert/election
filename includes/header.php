@@ -20,6 +20,7 @@ $baseUrl = base_url($config);
 ?>
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -30,29 +31,31 @@ $baseUrl = base_url($config);
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Manrope:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link href="<?php echo h(asset_url_versioned('assets/css/style.css', $config)); ?>" rel="stylesheet">
-    <?php echo site_theme_style_tag($config); ?>
+    <?php echo site_font_link_tag($config);
+    echo site_theme_style_tag($config); ?>
 </head>
+
 <body>
-<nav class="navbar navbar-expand-lg navbar-dark glass-nav">
-    <div class="container">
-        <a class="navbar-brand" href="<?php echo h($baseUrl . '/index.php'); ?>">
-            <img class="brand-badge" src="<?php echo h(site_logo_url($config)); ?>" alt="<?php echo h(site_name($config)); ?> badge">
-            <span class="brand-dot"></span>
-            <span><?php echo h(site_name($config)); ?></span>
-        </a>
-        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav">
-            <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="mainNav">
-            <ul class="navbar-nav ms-auto gap-lg-3">
-                <li class="nav-item"><a class="nav-link" href="<?php echo h($baseUrl . '/index.php'); ?>">Home</a></li>
-                <li class="nav-item"><a class="nav-link" href="<?php echo h($baseUrl . '/vote.php'); ?>">Vote</a></li>
-                <li class="nav-item"><a class="nav-link" href="<?php echo h($baseUrl . '/results.php'); ?>">Results</a></li>
-                <?php if (!empty($_SESSION['user_email']) && is_admin($config)): ?>
-                    <li class="nav-item"><a class="nav-link" href="<?php echo h($baseUrl . '/admin/index.php'); ?>">Admin</a></li>
-                <?php endif; ?>
-            </ul>
-        </div>
+    <nav class="navbar navbar-expand-lg navbar-dark glass-nav">
+        <div class="container">
+            <a class="navbar-brand" href="<?php echo h($baseUrl . '/index.php'); ?>">
+                <img class="brand-badge" src="<?php echo h(site_logo_url($config)); ?>" alt="<?php echo h(site_name($config)); ?> badge">
+                <span class="brand-dot"></span>
+                <span><?php echo h(site_name($config)); ?></span>
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="mainNav">
+                <ul class="navbar-nav ms-auto gap-lg-3">
+                    <li class="nav-item"><a class="nav-link" href="<?php echo h($baseUrl . '/index.php'); ?>">Home</a></li>
+                    <li class="nav-item"><a class="nav-link" href="<?php echo h($baseUrl . '/vote.php'); ?>">Vote</a></li>
+                    <li class="nav-item"><a class="nav-link" href="<?php echo h($baseUrl . '/results.php'); ?>">Results</a></li>
+                    <?php if (!empty($_SESSION['user_email']) && is_admin($config)): ?>
+                        <li class="nav-item"><a class="nav-link" href="<?php echo h($baseUrl . '/admin/index.php'); ?>">Admin</a></li>
+                    <?php endif; ?>
+                </ul>
+            </div>
             <div class="ms-lg-4 mt-3 mt-lg-0 auth-action">
                 <?php if (is_logged_in()): ?>
                     <a class="btn btn-danger btn-sm nav-logout" href="<?php echo h($baseUrl . '/logout.php'); ?>"><i class="bi bi-box-arrow-right"></i> Logout</a>
@@ -60,6 +63,6 @@ $baseUrl = base_url($config);
                     <a class="btn btn-primary btn-sm" href="<?php echo h($baseUrl . '/login.php'); ?>">Login with Google</a>
                 <?php endif; ?>
             </div>
-    </div>
-</nav>
-<main>
+        </div>
+    </nav>
+    <main>

@@ -1,0 +1,30 @@
+# Uploaded files are user-controlled content, never executable code —
+# this directory (and every subdirectory) must never run PHP or any
+# other script, even if a file somehow ends up here with a .php
+# extension or a script-executing polyglot payload (see
+# verify_real_image()'s doc comment in includes/helpers.php for why the
+# upload validation alone isn't sufficient on its own).
+
+# Apache 2.4+
+<IfModule mod_authz_core.c>
+    <FilesMatch "\.(php|php[0-9]?|phtml|phar|pl|py|cgi|sh|asp|aspx)$">
+        Require all denied
+    </FilesMatch>
+</IfModule>
+
+# Apache 2.2 and earlier
+<IfModule !mod_authz_core.c>
+    <FilesMatch "\.(php|php[0-9]?|phtml|phar|pl|py|cgi|sh|asp|aspx)$">
+        Order allow,deny
+        Deny from all
+    </FilesMatch>
+</IfModule>
+
+# Belt and suspenders: some hosts run PHP as an Apache handler rather
+# than matching by extension.
+<IfModule mod_php7.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php8.c>
+    php_flag engine off
+</IfModule>

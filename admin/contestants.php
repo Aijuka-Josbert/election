@@ -22,92 +22,201 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!csrf_verify()) {
         $errors[] = 'Your session expired. Please reload the page and try again.';
     } else {
-    $action = $_POST['action'] ?? 'add';
+        $action = $_POST['action'] ?? 'add';
 
-    if ($action === 'delete') {
-        // Delete contestant record and remove the photo if it exists under uploads
-        $contestantId = (int) ($_POST['contestant_id'] ?? 0);
-        if ($contestantId > 0) {
-            if (has_votes_for($pdo, 'contestant_id', $contestantId)) {
-                // Refuse to hard-delete: contestants.votes has ON DELETE
-                // CASCADE, so this would silently destroy every historical
-                // ballot cast for this contestant. Archive instead.
-                $archive = $pdo->prepare('UPDATE contestants SET active = 0 WHERE id = ?');
-                $archive->execute([$contestantId]);
-                log_admin_action($pdo, 'contestant_archived', "id={$contestantId} reason=has_votes");
-                $success = 'This contestant already has votes recorded, so they were archived (hidden from new ballots) instead of deleted, to protect existing results.';
-            } else {
-                $stmt = $pdo->prepare('SELECT photo FROM contestants WHERE id = ?');
-                $stmt->execute([$contestantId]);
-                $contestant = $stmt->fetch();
+        if ($action === 'delete') {
+            // Delete contestant record and remove the photo if it exists under uploads
+            $contestantId = (int) ($_POST['contestant_id'] ?? 0);
+            if ($contestantId > 0) {
+                if (has_votes_for($pdo, 'contestant_id', $contestantId)) {
+                    // Refuse to hard-delete: contestants.votes has ON DELETE
+                    // CASCADE, so this would silently destroy every historical
+                    // ballot cast for this contestant. Archive instead.
+                    $archive = $pdo->prepare('UPDATE contestants SET active = 0 WHERE id = ?');
+                    $archive->execute([$contestantId]);
+                    log_admin_action($pdo, 'contestant_archived', "id={$contestantId} reason=has_votes");
+                    $success = 'This contestant already has votes recorded, so they were archived (hidden from new ballots) instead of deleted, to protect existing results.';
+                } else {
+                    $stmt = $pdo->prepare('SELECT photo FROM contestants WHERE id = ?');
+                    $stmt->execute([$contestantId]);
+                    $contestant = $stmt->fetch();
 
-                $delete = $pdo->prepare('DELETE FROM contestants WHERE id = ?');
-                $delete->execute([$contestantId]);
-                log_admin_action($pdo, 'contestant_deleted', "id={$contestantId}");
+                    $delete = $pdo->prepare('DELETE FROM contestants WHERE id = ?');
+                    $delete->execute([$contestantId]);
+                    log_admin_action($pdo, 'contestant_deleted', "id={$contestantId}");
 
-                if ($contestant && !empty($contestant['photo'])) {
-                    $photoPath = realpath(__DIR__ . '/../' . $contestant['photo']);
-                    $uploadsPath = realpath($config['uploads']['contestants_dir']);
-                    if ($photoPath && $uploadsPath && strpos($photoPath, $uploadsPath) === 0) {
-                        @unlink($photoPath);
+                    if ($contestant && !empty($contestant['photo'])) {
+                        $photoPath = realpath(__DIR__ . '/../' . $contestant['photo']);
+                        $uploadsPath = realpath($config['uploads']['contestants_dir']);
+                        if ($photoPath && $uploadsPath && strpos($photoPath, $uploadsPath) === 0) {
+                            @unlink($photoPath);
+                        }
+                    }
+
+                    $success = 'Contestant deleted.';
+                }
+            }
+        } elseif ($action === 'toggle_active') {
+            $contestantId = (int) ($_POST['contestant_id'] ?? 0);
+            $newActive = (int) ($_POST['new_active'] ?? 0);
+            if ($contestantId > 0) {
+                $toggle = $pdo->prepare('UPDATE contestants SET active = ? WHERE id = ?');
+                $toggle->execute([$newActive ? 1 : 0, $contestantId]);
+                log_admin_action($pdo, $newActive ? 'contestant_reactivated' : 'contestant_archived', "id={$contestantId}");
+                $success = $newActive ? 'Contestant reactivated.' : 'Contestant archived.';
+            }
+        } elseif ($action === 'update') {
+            // Update existing contestant: validate inputs and optional new photo
+            $contestantId = (int) ($_POST['contestant_id'] ?? 0);
+            $name = trim($_POST['name'] ?? '');
+            $gender = $_POST['gender'] ?? '';
+            $bio = trim($_POST['bio'] ?? '');
+            $photo = $_FILES['photo'] ?? null;
+            $uploadDir = $config['uploads']['contestants_dir'];
+
+            if ($contestantId <= 0) {
+                $errors[] = 'Invalid contestant selected.';
+            }
+
+            if ($name === '') {
+                $errors[] = 'Name is required.';
+            } elseif (mb_strlen($name) > 255) {
+                $errors[] = 'Name must be 255 characters or fewer.';
+            }
+
+            if (mb_strlen($bio) > 1000) {
+                $errors[] = 'Bio must be 1000 characters or fewer.';
+            }
+
+            if (!in_array($gender, ['male', 'female'], true)) {
+                $errors[] = 'Select a valid gender.';
+            }
+
+            if (!is_dir($uploadDir) && !mkdir($uploadDir, 0755, true)) {
+                $errors[] = "Uploads folder is missing and could not be created at: {$uploadDir} — the web server process needs write permission on its parent directory. On Linux: sudo chown -R www-data:www-data " . dirname($uploadDir) . " && sudo chmod -R 775 " . dirname($uploadDir) . " (replace www-data with your actual web server user if different).";
+            } elseif (!is_writable($uploadDir)) {
+                // Self-heal attempt: if the PHP process actually owns this
+                // directory but the permission bits are just wrong (a common
+                // misconfiguration — e.g. it was created 755 by a deploy
+                // script running as a different user, or as 644), PHP can
+                // fix that itself. This only succeeds when PHP already owns
+                // the directory; it's a no-op (silently fails) when the
+                // problem is ownership, which still needs the server command
+                // below run once, manually, by whoever controls the server.
+                @chmod($uploadDir, 0775);
+                clearstatcache(true, $uploadDir);
+                if (!is_writable($uploadDir)) {
+                    $errors[] = "Uploads folder exists but is not writable by the web server at: {$uploadDir} — fix with: sudo chown -R www-data:www-data {$uploadDir} && sudo chmod -R 775 {$uploadDir} (replace www-data with your actual web server user if different).";
+                }
+            }
+
+            $newPhotoPath = null;
+            if ($photo && $photo['error'] !== UPLOAD_ERR_NO_FILE) {
+                // Validate uploaded file (error, size, mime)
+                if ($photo['error'] !== UPLOAD_ERR_OK) {
+                    $errors[] = 'Photo upload failed. Please choose a valid image.';
+                } elseif ($photo['size'] > $config['uploads']['max_size']) {
+                    $errors[] = 'Photo is too large. Max 2MB.';
+                } else {
+                    $finfo = new finfo(FILEINFO_MIME_TYPE);
+                    $mimeType = $finfo->file($photo['tmp_name']);
+                    if (!in_array($mimeType, $config['uploads']['allowed_types'], true)) {
+                        $errors[] = 'Only JPG, PNG, or WEBP images are allowed.';
+                    } elseif (!verify_real_image($photo['tmp_name'])) {
+                        // Second, independent check beyond the MIME type
+                        // above — see verify_real_image() doc comment.
+                        $errors[] = 'That file could not be verified as a real image. Please choose a different photo.';
+                    }
+                }
+            }
+
+            if (!$errors) {
+                $existingStmt = $pdo->prepare('SELECT photo FROM contestants WHERE id = ?');
+                $existingStmt->execute([$contestantId]);
+                $existing = $existingStmt->fetch();
+
+                if ($photo && $photo['error'] !== UPLOAD_ERR_NO_FILE) {
+                    $extensionMap = [
+                        'image/jpeg' => 'jpg',
+                        'image/png' => 'png',
+                        'image/webp' => 'webp',
+                    ];
+                    $ext = $extensionMap[$mimeType] ?? 'jpg';
+                    $fileName = uniqid('contestant_', true) . '.' . $ext;
+                    $destination = $config['uploads']['contestants_dir'] . '/' . $fileName;
+
+                    if (!move_uploaded_file($photo['tmp_name'], $destination)) {
+                        $errors[] = 'Unable to save the photo.';
+                    } else {
+                        // Best-effort — see compress_uploaded_image() doc
+                        // comment: silently keeps the original-size upload
+                        // if GD is unavailable or the image can't be read,
+                        // rather than blocking the upload over it.
+                        compress_uploaded_image($destination);
+                        $newPhotoPath = $config['uploads']['contestants_url'] . '/' . $fileName;
                     }
                 }
 
-                $success = 'Contestant deleted.';
+                if (!$errors) {
+                    $photoToSave = $newPhotoPath ?: ($existing['photo'] ?? '');
+                    $update = $pdo->prepare('UPDATE contestants SET name = ?, gender = ?, photo = ?, bio = ? WHERE id = ?');
+                    $update->execute([$name, $gender, $photoToSave, $bio ?: null, $contestantId]);
+
+                    // Remove previous photo file when replaced
+                    if ($newPhotoPath && $existing && !empty($existing['photo'])) {
+                        $photoPath = realpath(__DIR__ . '/../' . $existing['photo']);
+                        $uploadsPath = realpath($config['uploads']['contestants_dir']);
+                        if ($photoPath && $uploadsPath && strpos($photoPath, $uploadsPath) === 0) {
+                            @unlink($photoPath);
+                        }
+                    }
+
+                    $success = 'Contestant updated.';
+                    log_admin_action($pdo, 'contestant_updated', "id={$contestantId} name={$name}");
+                }
             }
-        }
-    } elseif ($action === 'toggle_active') {
-        $contestantId = (int) ($_POST['contestant_id'] ?? 0);
-        $newActive = (int) ($_POST['new_active'] ?? 0);
-        if ($contestantId > 0) {
-            $toggle = $pdo->prepare('UPDATE contestants SET active = ? WHERE id = ?');
-            $toggle->execute([$newActive ? 1 : 0, $contestantId]);
-            log_admin_action($pdo, $newActive ? 'contestant_reactivated' : 'contestant_archived', "id={$contestantId}");
-            $success = $newActive ? 'Contestant reactivated.' : 'Contestant archived.';
-        }
-    } elseif ($action === 'update') {
-        // Update existing contestant: validate inputs and optional new photo
-        $contestantId = (int) ($_POST['contestant_id'] ?? 0);
-        $name = trim($_POST['name'] ?? '');
-        $gender = $_POST['gender'] ?? '';
-        $bio = trim($_POST['bio'] ?? '');
-        $photo = $_FILES['photo'] ?? null;
-        $uploadDir = $config['uploads']['contestants_dir'];
+        } else {
+            // Add new contestant (requires photo)
+            $name = trim($_POST['name'] ?? '');
+            $gender = $_POST['gender'] ?? '';
+            $bio = trim($_POST['bio'] ?? '');
+            $photo = $_FILES['photo'] ?? null;
+            $uploadDir = $config['uploads']['contestants_dir'];
 
-        if ($contestantId <= 0) {
-            $errors[] = 'Invalid contestant selected.';
-        }
-
-        if ($name === '') {
-            $errors[] = 'Name is required.';
-        }
-
-        if (!in_array($gender, ['male', 'female'], true)) {
-            $errors[] = 'Select a valid gender.';
-        }
-
-        if (!is_dir($uploadDir) && !mkdir($uploadDir, 0755, true)) {
-            $errors[] = "Uploads folder is missing and could not be created at: {$uploadDir} — the web server process needs write permission on its parent directory. On Linux: sudo chown -R www-data:www-data " . dirname($uploadDir) . " && sudo chmod -R 775 " . dirname($uploadDir) . " (replace www-data with your actual web server user if different).";
-        } elseif (!is_writable($uploadDir)) {
-            // Self-heal attempt: if the PHP process actually owns this
-            // directory but the permission bits are just wrong (a common
-            // misconfiguration — e.g. it was created 755 by a deploy
-            // script running as a different user, or as 644), PHP can
-            // fix that itself. This only succeeds when PHP already owns
-            // the directory; it's a no-op (silently fails) when the
-            // problem is ownership, which still needs the server command
-            // below run once, manually, by whoever controls the server.
-            @chmod($uploadDir, 0775);
-            clearstatcache(true, $uploadDir);
-            if (!is_writable($uploadDir)) {
-                $errors[] = "Uploads folder exists but is not writable by the web server at: {$uploadDir} — fix with: sudo chown -R www-data:www-data {$uploadDir} && sudo chmod -R 775 {$uploadDir} (replace www-data with your actual web server user if different).";
+            if ($name === '') {
+                $errors[] = 'Name is required.';
+            } elseif (mb_strlen($name) > 255) {
+                $errors[] = 'Name must be 255 characters or fewer.';
             }
-        }
 
-        $newPhotoPath = null;
-        if ($photo && $photo['error'] !== UPLOAD_ERR_NO_FILE) {
-            // Validate uploaded file (error, size, mime)
-            if ($photo['error'] !== UPLOAD_ERR_OK) {
+            if (mb_strlen($bio) > 1000) {
+                $errors[] = 'Bio must be 1000 characters or fewer.';
+            }
+
+            if (!in_array($gender, ['male', 'female'], true)) {
+                $errors[] = 'Select a valid gender.';
+            }
+
+            if (!is_dir($uploadDir) && !mkdir($uploadDir, 0755, true)) {
+                $errors[] = "Uploads folder is missing and could not be created at: {$uploadDir} — the web server process needs write permission on its parent directory. On Linux: sudo chown -R www-data:www-data " . dirname($uploadDir) . " && sudo chmod -R 775 " . dirname($uploadDir) . " (replace www-data with your actual web server user if different).";
+            } elseif (!is_writable($uploadDir)) {
+                // Self-heal attempt: if the PHP process actually owns this
+                // directory but the permission bits are just wrong (a common
+                // misconfiguration — e.g. it was created 755 by a deploy
+                // script running as a different user, or as 644), PHP can
+                // fix that itself. This only succeeds when PHP already owns
+                // the directory; it's a no-op (silently fails) when the
+                // problem is ownership, which still needs the server command
+                // below run once, manually, by whoever controls the server.
+                @chmod($uploadDir, 0775);
+                clearstatcache(true, $uploadDir);
+                if (!is_writable($uploadDir)) {
+                    $errors[] = "Uploads folder exists but is not writable by the web server at: {$uploadDir} — fix with: sudo chown -R www-data:www-data {$uploadDir} && sudo chmod -R 775 {$uploadDir} (replace www-data with your actual web server user if different).";
+                }
+            }
+
+            // Validate photo presence and type
+            if (!$photo || $photo['error'] !== UPLOAD_ERR_OK) {
                 $errors[] = 'Photo upload failed. Please choose a valid image.';
             } elseif ($photo['size'] > $config['uploads']['max_size']) {
                 $errors[] = 'Photo is too large. Max 2MB.';
@@ -116,16 +225,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $mimeType = $finfo->file($photo['tmp_name']);
                 if (!in_array($mimeType, $config['uploads']['allowed_types'], true)) {
                     $errors[] = 'Only JPG, PNG, or WEBP images are allowed.';
+                } elseif (!verify_real_image($photo['tmp_name'])) {
+                    $errors[] = 'That file could not be verified as a real image. Please choose a different photo.';
                 }
             }
-        }
 
-        if (!$errors) {
-            $existingStmt = $pdo->prepare('SELECT photo FROM contestants WHERE id = ?');
-            $existingStmt->execute([$contestantId]);
-            $existing = $existingStmt->fetch();
-
-            if ($photo && $photo['error'] !== UPLOAD_ERR_NO_FILE) {
+            if (!$errors) {
                 $extensionMap = [
                     'image/jpeg' => 'jpg',
                     'image/png' => 'png',
@@ -138,102 +243,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!move_uploaded_file($photo['tmp_name'], $destination)) {
                     $errors[] = 'Unable to save the photo.';
                 } else {
-                    // Best-effort — see compress_uploaded_image() doc
-                    // comment: silently keeps the original-size upload
-                    // if GD is unavailable or the image can't be read,
-                    // rather than blocking the upload over it.
                     compress_uploaded_image($destination);
-                    $newPhotoPath = $config['uploads']['contestants_url'] . '/' . $fileName;
+                    $photoPath = $config['uploads']['contestants_url'] . '/' . $fileName;
+                    $insert = $pdo->prepare('INSERT INTO contestants (name, gender, photo, bio, active) VALUES (?, ?, ?, ?, 1)');
+                    $insert->execute([$name, $gender, $photoPath, $bio ?: null]);
+                    log_admin_action($pdo, 'contestant_added', "name={$name} gender={$gender}");
+                    $success = 'Contestant added.';
                 }
             }
-
-            if (!$errors) {
-                $photoToSave = $newPhotoPath ?: ($existing['photo'] ?? '');
-                $update = $pdo->prepare('UPDATE contestants SET name = ?, gender = ?, photo = ?, bio = ? WHERE id = ?');
-                $update->execute([$name, $gender, $photoToSave, $bio ?: null, $contestantId]);
-
-                // Remove previous photo file when replaced
-                if ($newPhotoPath && $existing && !empty($existing['photo'])) {
-                    $photoPath = realpath(__DIR__ . '/../' . $existing['photo']);
-                    $uploadsPath = realpath($config['uploads']['contestants_dir']);
-                    if ($photoPath && $uploadsPath && strpos($photoPath, $uploadsPath) === 0) {
-                        @unlink($photoPath);
-                    }
-                }
-
-                $success = 'Contestant updated.';
-                log_admin_action($pdo, 'contestant_updated', "id={$contestantId} name={$name}");
-            }
         }
-    } else {
-        // Add new contestant (requires photo)
-        $name = trim($_POST['name'] ?? '');
-        $gender = $_POST['gender'] ?? '';
-        $bio = trim($_POST['bio'] ?? '');
-        $photo = $_FILES['photo'] ?? null;
-        $uploadDir = $config['uploads']['contestants_dir'];
-
-        if ($name === '') {
-            $errors[] = 'Name is required.';
-        }
-
-        if (!in_array($gender, ['male', 'female'], true)) {
-            $errors[] = 'Select a valid gender.';
-        }
-
-        if (!is_dir($uploadDir) && !mkdir($uploadDir, 0755, true)) {
-            $errors[] = "Uploads folder is missing and could not be created at: {$uploadDir} — the web server process needs write permission on its parent directory. On Linux: sudo chown -R www-data:www-data " . dirname($uploadDir) . " && sudo chmod -R 775 " . dirname($uploadDir) . " (replace www-data with your actual web server user if different).";
-        } elseif (!is_writable($uploadDir)) {
-            // Self-heal attempt: if the PHP process actually owns this
-            // directory but the permission bits are just wrong (a common
-            // misconfiguration — e.g. it was created 755 by a deploy
-            // script running as a different user, or as 644), PHP can
-            // fix that itself. This only succeeds when PHP already owns
-            // the directory; it's a no-op (silently fails) when the
-            // problem is ownership, which still needs the server command
-            // below run once, manually, by whoever controls the server.
-            @chmod($uploadDir, 0775);
-            clearstatcache(true, $uploadDir);
-            if (!is_writable($uploadDir)) {
-                $errors[] = "Uploads folder exists but is not writable by the web server at: {$uploadDir} — fix with: sudo chown -R www-data:www-data {$uploadDir} && sudo chmod -R 775 {$uploadDir} (replace www-data with your actual web server user if different).";
-            }
-        }
-
-        // Validate photo presence and type
-        if (!$photo || $photo['error'] !== UPLOAD_ERR_OK) {
-            $errors[] = 'Photo upload failed. Please choose a valid image.';
-        } elseif ($photo['size'] > $config['uploads']['max_size']) {
-            $errors[] = 'Photo is too large. Max 2MB.';
-        } else {
-            $finfo = new finfo(FILEINFO_MIME_TYPE);
-            $mimeType = $finfo->file($photo['tmp_name']);
-            if (!in_array($mimeType, $config['uploads']['allowed_types'], true)) {
-                $errors[] = 'Only JPG, PNG, or WEBP images are allowed.';
-            }
-        }
-
-        if (!$errors) {
-            $extensionMap = [
-                'image/jpeg' => 'jpg',
-                'image/png' => 'png',
-                'image/webp' => 'webp',
-            ];
-            $ext = $extensionMap[$mimeType] ?? 'jpg';
-            $fileName = uniqid('contestant_', true) . '.' . $ext;
-            $destination = $config['uploads']['contestants_dir'] . '/' . $fileName;
-
-            if (!move_uploaded_file($photo['tmp_name'], $destination)) {
-                $errors[] = 'Unable to save the photo.';
-            } else {
-                compress_uploaded_image($destination);
-                $photoPath = $config['uploads']['contestants_url'] . '/' . $fileName;
-                $insert = $pdo->prepare('INSERT INTO contestants (name, gender, photo, bio, active) VALUES (?, ?, ?, ?, 1)');
-                $insert->execute([$name, $gender, $photoPath, $bio ?: null]);
-                log_admin_action($pdo, 'contestant_added', "name={$name} gender={$gender}");
-                $success = 'Contestant added.';
-            }
-        }
-    }
     }
 }
 
@@ -271,7 +289,7 @@ require_once __DIR__ . '/partials/header.php';
                 <?php endif; ?>
                 <div class="mb-3">
                     <label class="form-label">Name</label>
-                    <input class="form-control" type="text" name="name" value="<?php echo h($editContestant['name'] ?? ''); ?>" required>
+                    <input class="form-control" type="text" name="name" value="<?php echo h($editContestant['name'] ?? ''); ?>" maxlength="255" required>
                 </div>
                 <div class="mb-3">
                     <label class="form-label">Gender</label>
@@ -283,7 +301,7 @@ require_once __DIR__ . '/partials/header.php';
                 </div>
                 <div class="mb-3">
                     <label class="form-label">Bio (optional)</label>
-                    <textarea class="form-control" name="bio" rows="3"><?php echo h($editContestant['bio'] ?? ''); ?></textarea>
+                    <textarea class="form-control" name="bio" rows="3" maxlength="1000"><?php echo h($editContestant['bio'] ?? ''); ?></textarea>
                 </div>
                 <div class="mb-3">
                     <label class="form-label">Photo</label>
@@ -311,7 +329,7 @@ require_once __DIR__ . '/partials/header.php';
                     <?php foreach ($contestants as $contestant): ?>
                         <?php $isActive = (int) ($contestant['active'] ?? 1) === 1; ?>
                         <div class="col-md-6">
-                            <div class="card-dark p-3 h-100"<?php echo $isActive ? '' : ' style="opacity:.6;"'; ?>>
+                            <div class="card-dark p-3 h-100" <?php echo $isActive ? '' : ' style="opacity:.6;"'; ?>>
                                 <img class="contestant-img" src="<?php echo h(asset_url($contestant['photo'], $config)); ?>" alt="<?php echo h($contestant['name']); ?>">
                                 <div class="mt-2">
                                     <strong><?php echo h($contestant['name']); ?></strong>

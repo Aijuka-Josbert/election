@@ -5,10 +5,23 @@
  * user to Google's consent screen. If already authenticated, redirects to voting.
  */
 require_once __DIR__ . '/includes/session.php';
+require_once __DIR__ . '/includes/helpers.php';
 $config = require __DIR__ . '/config/config.php';
 
+// Capture ?return_url=... (set by includes/admin_auth.php on an idle
+// timeout, or by any page that wants "log in, then come back here") into
+// the session, so google-callback.php can send the user back to it once
+// authenticated. Validated before ever being used as a redirect target —
+// see safe_local_redirect_target().
+$requestedReturnUrl = safe_local_redirect_target($_GET['return_url'] ?? null);
+if ($requestedReturnUrl !== null) {
+    $_SESSION['return_url'] = $requestedReturnUrl;
+}
+
 if (!empty($_SESSION['user_id'])) {
-    header('Location: vote.php');
+    $returnUrl = safe_local_redirect_target($_SESSION['return_url'] ?? null);
+    unset($_SESSION['return_url']);
+    header('Location: ' . ($returnUrl ?? 'vote.php'));
     exit;
 }
 

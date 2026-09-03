@@ -13,45 +13,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!csrf_verify()) {
         $errors[] = 'Your session expired. Please reload the page and try again.';
     } else {
-    $action = $_POST['action'] ?? '';
-    if ($action === 'delete') {
-        $userId = (int) ($_POST['user_id'] ?? 0);
-        if ($userId > 0) {
-            $delete = $pdo->prepare('DELETE FROM users WHERE id = ? AND has_voted = 0');
-            $delete->execute([$userId]);
-            if ($delete->rowCount() > 0) {
-                log_admin_action($pdo, 'user_deleted', "id={$userId}");
-                $success = 'User removed.';
-            } else {
-                $errors[] = 'Unable to delete user. They may have voted already.';
+        $action = $_POST['action'] ?? '';
+        if ($action === 'delete') {
+            $userId = (int) ($_POST['user_id'] ?? 0);
+            if ($userId > 0) {
+                $delete = $pdo->prepare('DELETE FROM users WHERE id = ? AND has_voted = 0');
+                $delete->execute([$userId]);
+                if ($delete->rowCount() > 0) {
+                    log_admin_action($pdo, 'user_deleted', "id={$userId}");
+                    $success = 'User removed.';
+                } else {
+                    $errors[] = 'Unable to delete user. They may have voted already.';
+                }
+            }
+        } elseif ($action === 'reset_ballot') {
+            // Replaces the manual "DELETE FROM votes WHERE user_id = ?;
+            // UPDATE users SET has_voted = 0" a real admin would otherwise
+            // need direct database access to run — same effect, but through
+            // an audited, confirmed admin action instead of raw SQL. Meant
+            // for correcting test votes / mistaken submissions, not for
+            // letting someone "vote again" in a live election — it's logged
+            // with who did it and when either way.
+            $userId = (int) ($_POST['user_id'] ?? 0);
+            if ($userId > 0) {
+                $pdo->beginTransaction();
+                try {
+                    $del = $pdo->prepare('DELETE FROM votes WHERE user_id = ?');
+                    $del->execute([$userId]);
+                    $rowsDeleted = $del->rowCount();
+                    $upd = $pdo->prepare('UPDATE users SET has_voted = 0 WHERE id = ?');
+                    $upd->execute([$userId]);
+                    $pdo->commit();
+                    log_admin_action($pdo, 'user_ballot_reset', "id={$userId} votes_removed={$rowsDeleted}");
+                    $success = "Ballot reset — {$rowsDeleted} vote row(s) removed. This user can vote again.";
+                } catch (PDOException $e) {
+                    $pdo->rollBack();
+                    $errors[] = 'Unable to reset this ballot.';
+                }
             }
         }
-    } elseif ($action === 'reset_ballot') {
-        // Replaces the manual "DELETE FROM votes WHERE user_id = ?;
-        // UPDATE users SET has_voted = 0" a real admin would otherwise
-        // need direct database access to run — same effect, but through
-        // an audited, confirmed admin action instead of raw SQL. Meant
-        // for correcting test votes / mistaken submissions, not for
-        // letting someone "vote again" in a live election — it's logged
-        // with who did it and when either way.
-        $userId = (int) ($_POST['user_id'] ?? 0);
-        if ($userId > 0) {
-            $pdo->beginTransaction();
-            try {
-                $del = $pdo->prepare('DELETE FROM votes WHERE user_id = ?');
-                $del->execute([$userId]);
-                $rowsDeleted = $del->rowCount();
-                $upd = $pdo->prepare('UPDATE users SET has_voted = 0 WHERE id = ?');
-                $upd->execute([$userId]);
-                $pdo->commit();
-                log_admin_action($pdo, 'user_ballot_reset', "id={$userId} votes_removed={$rowsDeleted}");
-                $success = "Ballot reset — {$rowsDeleted} vote row(s) removed. This user can vote again.";
-            } catch (PDOException $e) {
-                $pdo->rollBack();
-                $errors[] = 'Unable to reset this ballot.';
-            }
-        }
-    }
     }
 }
 
